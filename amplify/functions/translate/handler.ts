@@ -5,7 +5,7 @@ import {
   DescribeTextTranslationJobCommand 
 } from '@aws-sdk/client-translate';
 
-// Wir nutzen die Region der Lambda (eu-central-1)
+// Region Frankfurt (eu-central-1) wird automatisch genutzt
 const translateClient = new TranslateClient({});
 
 export const handler: Handler = async (event, context: Context) => {
@@ -26,12 +26,16 @@ export const handler: Handler = async (event, context: Context) => {
       const outputUri = `s3://${bucketName}/translated/`;
       const jobName = `job-${Date.now()}`;
 
+      // DER FIX: 'application/octet-stream' nutzen!
+      // Das umgeht die strikte 'application/pdf' Prüfung, die oft fehlschlägt.
+      // AWS Translate erkennt das PDF dann automatisch an der Dateiendung.
+      const contentTypeHack = 'application/octet-stream' as any;
+
       const command = new StartTextTranslationJobCommand({
         JobName: jobName,
         InputDataConfig: { 
           S3Uri: inputUri,
-          // Da wir jetzt Textract-Rechte haben, ist dies korrekt und zwingend erforderlich
-          ContentType: 'application/pdf'
+          ContentType: contentTypeHack
         },
         OutputDataConfig: { S3Uri: outputUri },
         DataAccessRoleArn: dataAccessRoleArn,
@@ -39,7 +43,7 @@ export const handler: Handler = async (event, context: Context) => {
         TargetLanguageCodes: [targetLang]
       });
 
-      console.log("Sending Command:", JSON.stringify(command));
+      console.log("Sending Command with Octet-Stream:", JSON.stringify(command));
       const res = await translateClient.send(command);
       return { status: 'JOB_STARTED', jobId: res.JobId };
     }

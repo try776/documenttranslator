@@ -12,28 +12,28 @@ const backend = defineBackend({
   translateFunction,
 });
 
-// FIX: Gast-Zugriff erzwingen
+// 1. Gast-Zugriff für S3 und API
 (backend.auth.resources.cfnResources.cfnIdentityPool as any).allowUnauthenticatedIdentities = true;
 
-// 1. IAM Service-Rolle für Amazon Translate erstellen
+// 2. IAM Service-Rolle für Amazon Translate
 const translateServiceRole = new Role(backend.createStack('TranslateRoleStack'), 'TranslateServiceRole', {
   assumedBy: new ServicePrincipal('translate.amazonaws.com'),
 });
 
-// Zugriff auf Bucket gewähren (S3)
+// S3 Zugriff: Read/Write und explizit ListBucket (wichtig für Batch Jobs)
 backend.storage.resources.bucket.grantReadWrite(translateServiceRole);
-
-// WICHTIG: Zugriff auf Textract gewähren! 
-// Ohne dies schlägt PDF-Übersetzung mit "Invalid ContentType" fehl.
 translateServiceRole.addToPolicy(new PolicyStatement({
-  actions: [
-    'textract:DetectDocumentText', 
-    'textract:AnalyzeDocument'
-  ],
+  actions: ['s3:ListBucket', 's3:GetBucketLocation'],
+  resources: [backend.storage.resources.bucket.bucketArn]
+}));
+
+// Textract Zugriff: Wir geben '*' um Permission-Probleme auszuschließen
+translateServiceRole.addToPolicy(new PolicyStatement({
+  actions: ['textract:*'], 
   resources: ['*'],
 }));
 
-// 2. Lambda Konfiguration
+// 3. Lambda Konfiguration
 (backend.translateFunction.resources.lambda as any).addEnvironment(
   'STORAGE_DOCUMENTBUCKET_BUCKETNAME',
   backend.storage.resources.bucket.bucketName
@@ -43,7 +43,7 @@ translateServiceRole.addToPolicy(new PolicyStatement({
   translateServiceRole.roleArn
 );
 
-// 3. Lambda Rechte
+// Lambda Rechte um den Job zu steuern
 backend.translateFunction.resources.lambda.addToRolePolicy(new PolicyStatement({
   actions: [
     'translate:StartTextTranslationJob', 
@@ -53,4 +53,5 @@ backend.translateFunction.resources.lambda.addToRolePolicy(new PolicyStatement({
   resources: ['*'],
 }));
 
+// Lambda S3 Zugriff
 backend.storage.resources.bucket.grantReadWrite(backend.translateFunction.resources.lambda);

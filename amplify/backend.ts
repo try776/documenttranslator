@@ -16,16 +16,24 @@ const backend = defineBackend({
 (backend.auth.resources.cfnResources.cfnIdentityPool as any).allowUnauthenticatedIdentities = true;
 
 // 1. IAM Service-Rolle für Amazon Translate erstellen
-// Diese Rolle erlaubt Translate, Dateien von S3 zu lesen und zu schreiben
 const translateServiceRole = new Role(backend.createStack('TranslateRoleStack'), 'TranslateServiceRole', {
   assumedBy: new ServicePrincipal('translate.amazonaws.com'),
 });
 
-// Zugriff auf Bucket gewähren
+// Zugriff auf Bucket gewähren (S3)
 backend.storage.resources.bucket.grantReadWrite(translateServiceRole);
 
+// WICHTIG: Zugriff auf Textract gewähren! 
+// Ohne dies schlägt PDF-Übersetzung mit "Invalid ContentType" fehl.
+translateServiceRole.addToPolicy(new PolicyStatement({
+  actions: [
+    'textract:DetectDocumentText', 
+    'textract:AnalyzeDocument'
+  ],
+  resources: ['*'],
+}));
+
 // 2. Lambda Konfiguration
-// Wir übergeben den ARN der Rolle an die Lambda, damit sie den Job damit starten kann
 (backend.translateFunction.resources.lambda as any).addEnvironment(
   'STORAGE_DOCUMENTBUCKET_BUCKETNAME',
   backend.storage.resources.bucket.bucketName
@@ -36,7 +44,6 @@ backend.storage.resources.bucket.grantReadWrite(translateServiceRole);
 );
 
 // 3. Lambda Rechte
-// Lambda darf Jobs starten/prüfen und die Rolle an Translate "weiterreichen" (PassRole)
 backend.translateFunction.resources.lambda.addToRolePolicy(new PolicyStatement({
   actions: [
     'translate:StartTextTranslationJob', 
@@ -46,5 +53,4 @@ backend.translateFunction.resources.lambda.addToRolePolicy(new PolicyStatement({
   resources: ['*'],
 }));
 
-// Lambda darf auch S3 nutzen (optional für Checks)
 backend.storage.resources.bucket.grantReadWrite(backend.translateFunction.resources.lambda);

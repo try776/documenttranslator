@@ -5,7 +5,7 @@ import {
   DescribeTextTranslationJobCommand 
 } from '@aws-sdk/client-translate';
 
-// Client ohne feste Region - er nutzt die Region der Lambda (jetzt eu-central-1)
+// Wir nutzen die Region der Lambda (eu-central-1)
 const translateClient = new TranslateClient({});
 
 export const handler: Handler = async (event, context: Context) => {
@@ -30,7 +30,7 @@ export const handler: Handler = async (event, context: Context) => {
         JobName: jobName,
         InputDataConfig: { 
           S3Uri: inputUri,
-          // PDF wird in eu-central-1 unterstützt!
+          // Da wir jetzt Textract-Rechte haben, ist dies korrekt und zwingend erforderlich
           ContentType: 'application/pdf'
         },
         OutputDataConfig: { S3Uri: outputUri },
@@ -39,6 +39,7 @@ export const handler: Handler = async (event, context: Context) => {
         TargetLanguageCodes: [targetLang]
       });
 
+      console.log("Sending Command:", JSON.stringify(command));
       const res = await translateClient.send(command);
       return { status: 'JOB_STARTED', jobId: res.JobId };
     }
@@ -55,8 +56,6 @@ export const handler: Handler = async (event, context: Context) => {
       if (status === 'COMPLETED') {
         const accountId = context.invokedFunctionArn.split(':')[4];
         const usedLang = jobProps?.TargetLanguageCodes?.[0] || targetLang;
-        
-        // AWS Translate Output-Struktur
         const outputFolder = `${accountId}-${jobId}-${usedLang}`;
         const finalPath = `translated/${outputFolder}/${s3Key}`;
 
@@ -67,7 +66,6 @@ export const handler: Handler = async (event, context: Context) => {
         };
 
       } else if (status === 'FAILED' || status === 'COMPLETED_WITH_ERROR') {
-        // Logge Details für Debugging
         console.error('Job Failed Details:', JSON.stringify(jobProps));
         return { status: 'ERROR', error: jobProps?.Message || 'Translation Job Failed' };
       } else {

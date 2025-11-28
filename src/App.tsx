@@ -34,13 +34,18 @@ function DownloadView({ fileName }: { fileName: string }) {
   useEffect(() => {
     const fetchLink = async () => {
       try {
-        // Pfad sicherstellen
+        // Pfad sicherstellen: Falls 'translated/' fehlt, hinzufügen.
+        // Falls der Pfad bereits korrekt ist (wie durch den Fix unten), so lassen.
         const path = fileName.startsWith('translated/') ? fileName : `translated/${fileName}`;
         console.log("Fetching Download URL for:", path);
-        const link = await getUrl({ path, options: { validateObjectExistence: false, expiresIn: 3600 }});
+        
+        const link = await getUrl({ 
+          path, 
+          options: { validateObjectExistence: false, expiresIn: 3600 }
+        });
         setUrl(link.url.toString());
       } catch (e) {
-        console.error(e);
+        console.error("Download Error:", e);
       } finally {
         setLoading(false);
       }
@@ -59,7 +64,7 @@ function DownloadView({ fileName }: { fileName: string }) {
       }
       <p style={{ wordBreak: 'break-all', color: '#fff' }}>{fileName.split('/').pop()}</p>
       {loading ? <FaSpinner className="icon-spin" /> : url ? (
-        <a href={url} className="primary-btn" style={{ maxWidth: '200px', margin: '0 auto', textDecoration: 'none' }}>
+        <a href={url} className="primary-btn" style={{ maxWidth: '200px', margin: '0 auto', textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <FaDownload style={{marginRight: '8px'}} /> {t('download')}
         </a>
       ) : <p style={{ color: 'red' }}>File not found.</p>}
@@ -78,6 +83,7 @@ function App() {
   const [status, setStatus] = useState<'IDLE'|'UPLOADING'|'PROCESSING'|'DONE'|'ERROR'>('IDLE');
   const [progress, setProgress] = useState(0);
   const [shareLink, setShareLink] = useState<string | null>(null);
+  const [directDownloadUrl, setDirectDownloadUrl] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   
@@ -96,6 +102,7 @@ function App() {
     setStatus('IDLE');
     setErrorMsg(null); 
     setShareLink(null);
+    setDirectDownloadUrl(null);
     setProgress(0);
 
     if (selectedFile) {
@@ -129,6 +136,7 @@ function App() {
     try {
       await fetchAuthSession();
 
+      // Leerzeichen durch _ ersetzen für S3 Kompatibilität
       const cleanName = file.name.replace(/\s+/g, '_');
       const s3Path = `uploads/${Date.now()}/${cleanName}`;
       
@@ -180,35 +188,40 @@ function App() {
           if (checkRes.status === 'DONE') {
              clearInterval(pollRef.current);
              
-             // --- FIX: PFAD KORREKTUR START ---
-             // Amazon Translate ändert den Dateinamen zu [lang].[filename] und speichert flach im Job-Ordner.
-             // Der vom Lambda zurückgegebene Pfad ist oft falsch (enthält noch uploads/).
+             // --- LOGIK KORREKTUR START ---
+             let finalPath = checkRes.downloadPath; 
+             // Typischer Pfad vom Backend: "translated/JOB-ID/uploads/timestamp/file.docx"
+             // Wir benötigen: "translated/JOB-ID/targetLang.cleanFilename.docx"
              
-             let finalPath = checkRes.downloadPath; // Wahrscheinlich z.B. "JOBID/uploads/timestamp/file.docx"
-             
-             // Wir splitten den Pfad, um die Job-Folder-ID zu bekommen (der erste Teil)
              const pathParts = finalPath.split('/');
-             if (pathParts.length > 0 && file) {
-                 const jobFolderId = pathParts[0]; 
-                 // Konstruiere den echten Dateinamen, wie er im S3 Screenshot zu sehen ist: "en.aws_test_datei.docx"
+             
+             // Wir prüfen, ob wir mindestens 'translated' und die 'JOB-ID' haben
+             if (pathParts.length >= 2 && file) {
+                 const folderPrefix = pathParts[0]; // "translated"
+                 const jobIdFolder = pathParts[1];  // Die lange Job-ID (z.B. 74666...-TranslateText-...)
+                 
                  const correctFileName = `${targetLang}.${file.name.replace(/\s+/g, '_')}`;
                  
-                 // Neuer korrekter Pfad: "JOBID/en.file.docx"
-                 finalPath = `${jobFolderId}/${correctFileName}`;
-                 console.log("Corrected S3 Path:", finalPath);
+                 // Korrekter S3 Key zusammenbauen
+                 finalPath = `${folderPrefix}/${jobIdFolder}/${correctFileName}`;
+                 console.log("Constructed S3 Key:", finalPath);
              }
-             // --- FIX PFAD KORREKTUR ENDE ---
+             // --- LOGIK KORREKTUR ENDE ---
              
-             // URL generieren (Pfad muss 'translated/' enthalten, da DownloadView dies erwartet oder hinzufügt)
-             const fullS3Path = `translated/${finalPath}`;
-             const urlData = await getUrl({ path: fullS3Path });
+             // 1. Link für Share/QR Code (Public Page)
              const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-             
              if (isLocalhost) {
-               setShareLink(urlData.url.toString());
+                // Lokal direkt S3 URL nutzen
+                const urlData = await getUrl({ path: finalPath });
+                setShareLink(urlData.url.toString());
+                setDirectDownloadUrl(urlData.url.toString());
              } else {
-               // Wir geben 'finalPath' weiter. DownloadView fügt 'translated/' hinzu.
-               setShareLink(`${window.location.origin}/?file=${encodeURIComponent(finalPath)}`);
+                // Production: Link auf die App selbst mit Parameter
+                setShareLink(`${window.location.origin}/?file=${encodeURIComponent(finalPath)}`);
+                
+                // 2. Link für direkten Download Button (Signierte S3 URL holen)
+                const downloadUrlData = await getUrl({ path: finalPath });
+                setDirectDownloadUrl(downloadUrlData.url.toString());
              }
              
              setStatus('DONE');
@@ -281,13 +294,29 @@ function App() {
               <div style={{ background: 'white', padding: '10px', display: 'inline-block', borderRadius: '5px' }}>
                 <QRCodeSVG value={shareLink} size={150} level={"L"} includeMargin={true} />
               </div>
-              <div style={{ display: 'flex', marginTop: 15, gap: 5 }}>
+              
+              <div style={{ display: 'flex', marginTop: 15, gap: 5, marginBottom: 15 }}>
                 <input readOnly value={shareLink} style={{ flex: 1, padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} onClick={(e) => e.currentTarget.select()} />
                 <button onClick={copyLink} style={{ background: 'var(--primary)', border: 'none', borderRadius: '4px', padding: '0 15px', cursor: 'pointer', color: 'white' }}>{copied ? <FaCheckCircle /> : <FaCopy />}</button>
               </div>
+
+              {/* HIER IST DER NEUE DOWNLOAD BUTTON */}
+              {directDownloadUrl && (
+                  <a href={directDownloadUrl} target="_blank" rel="noopener noreferrer" className="primary-btn" style={{ 
+                      textDecoration: 'none', 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
+                      background: '#2b579a', // Etwas andere Farbe zur Unterscheidung
+                      marginTop: '10px'
+                  }}>
+                    <FaDownload style={{marginRight: '8px'}} /> {t('download')}
+                  </a>
+              )}
+
               <p style={{fontSize: '0.8rem', color: '#666', marginTop: '10px'}}>
                 {window.location.hostname === 'localhost' 
-                  ? "Dev-Mode: Direct S3 Link (Scan with Phone)" 
+                  ? "Dev-Mode: Direct S3 Link" 
                   : "Share this secure link to download"}
               </p>
             </div>

@@ -182,49 +182,34 @@ function App() {
              return; 
           }
 
-          const checkRes = checkData ? JSON.parse(checkData as string) : {};
+         const checkRes = checkData ? JSON.parse(checkData as string) : {};
           console.log('Job Status:', checkRes);
 
           if (checkRes.status === 'DONE') {
-             clearInterval(pollRef.current);
-             
-             // --- LOGIK KORREKTUR START ---
-             let finalPath = checkRes.downloadPath; 
-             // Typischer Pfad vom Backend: "translated/JOB-ID/uploads/timestamp/file.docx"
-             // Wir benötigen: "translated/JOB-ID/targetLang.cleanFilename.docx"
-             
-             const pathParts = finalPath.split('/');
-             
-             // Wir prüfen, ob wir mindestens 'translated' und die 'JOB-ID' haben
-             if (pathParts.length >= 2 && file) {
-                 const folderPrefix = pathParts[0]; // "translated"
-                 const jobIdFolder = pathParts[1];  // Die lange Job-ID (z.B. 74666...-TranslateText-...)
-                 
-                 const correctFileName = `${targetLang}.${file.name.replace(/\s+/g, '_')}`;
-                 
-                 // Korrekter S3 Key zusammenbauen
-                 finalPath = `${folderPrefix}/${jobIdFolder}/${correctFileName}`;
-                 console.log("Constructed S3 Key:", finalPath);
-             }
-             // --- LOGIK KORREKTUR ENDE ---
-             
-             // 1. Link für Share/QR Code (Public Page)
-             const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-             if (isLocalhost) {
+              clearInterval(pollRef.current);
+              
+              // WICHTIG: Wir nutzen direkt den validierten Pfad vom Backend!
+              // Keine manuelle String-Bastelarbeit mehr nötig.
+              const finalPath = checkRes.downloadPath;
+              console.log("Using validated S3 Key from Backend:", finalPath);
+              
+              // 1. Link für Share/QR Code (Public Page)
+              const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+              if (isLocalhost) {
                 // Lokal direkt S3 URL nutzen
                 const urlData = await getUrl({ path: finalPath });
                 setShareLink(urlData.url.toString());
                 setDirectDownloadUrl(urlData.url.toString());
-             } else {
+              } else {
                 // Production: Link auf die App selbst mit Parameter
                 setShareLink(`${window.location.origin}/?file=${encodeURIComponent(finalPath)}`);
                 
                 // 2. Link für direkten Download Button (Signierte S3 URL holen)
                 const downloadUrlData = await getUrl({ path: finalPath });
                 setDirectDownloadUrl(downloadUrlData.url.toString());
-             }
-             
-             setStatus('DONE');
+              }
+              
+              setStatus('DONE');
           } else if (checkRes.status === 'ERROR') {
              clearInterval(pollRef.current);
              setStatus('ERROR');

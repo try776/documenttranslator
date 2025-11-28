@@ -4,7 +4,11 @@ import {
   StartTextTranslationJobCommand, 
   DescribeTextTranslationJobCommand 
 } from '@aws-sdk/client-translate';
-import { S3Client, HeadObjectCommand } from '@aws-sdk/client-s3';
+import { 
+  S3Client, 
+  HeadObjectCommand,
+  ListObjectsV2Command 
+} from '@aws-sdk/client-s3';
 
 const translateClient = new TranslateClient({});
 const s3Client = new S3Client({});
@@ -30,14 +34,14 @@ export const handler: Handler = async (event, context: Context) => {
   const bucketName = process.env.STORAGE_DOCUMENTBUCKET_BUCKETNAME;
   const dataAccessRoleArn = process.env.TRANSLATE_ROLE_ARN;
 
-  // LOG zur Überprüfung, ob der neue Code läuft
-  console.log("HANDLER_VERSION: V2_FIXED_FOLDER");
+  console.log("HANDLER_VERSION: V3_VALIDATED_PATH_SEARCH");
 
   if (!bucketName || !dataAccessRoleArn) {
     throw new Error('Configuration missing (Bucket or Role ARN)');
   }
 
   try {
+    // --- ACTION: START ---
     if (action === 'start') {
       console.log(`Starting Job for File: ${s3Key}`);
       
@@ -46,9 +50,7 @@ export const handler: Handler = async (event, context: Context) => {
         throw new Error(`NO_FILE_FOUND: File ${s3Key} did not appear in S3.`);
       }
 
-      // WICHTIG: Pfad zum Ordner extrahieren!
-      // s3Key: uploads/12345/MyFile.docx
-      // inputPrefix: uploads/12345/
+      // Input Prefix extrahieren
       const lastSlashIndex = s3Key.lastIndexOf('/');
       const inputPrefix = s3Key.substring(0, lastSlashIndex + 1); 
       
@@ -66,12 +68,10 @@ export const handler: Handler = async (event, context: Context) => {
         finalContentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
       }
 
-      console.log(`Using Input Folder URI: ${inputUri}`); // Das muss in den Logs stehen!
-
       const command = new StartTextTranslationJobCommand({
         JobName: jobName,
         InputDataConfig: { 
-          S3Uri: inputUri, // Zeigt auf Ordner
+          S3Uri: inputUri, 
           ContentType: finalContentType 
         },
         OutputDataConfig: { S3Uri: outputUri },
@@ -85,6 +85,7 @@ export const handler: Handler = async (event, context: Context) => {
       return { status: 'JOB_STARTED', jobId: res.JobId };
     }
 
+    // --- ACTION: CHECK ---
     if (action === 'check') {
       const command = new DescribeTextTranslationJobCommand({ JobId: jobId });
       const res = await translateClient.send(command);
@@ -94,16 +95,45 @@ export const handler: Handler = async (event, context: Context) => {
       console.log(`Job Check: ${jobId} Status: ${status}`);
 
       if (status === 'COMPLETED') {
-        const accountId = context.invokedFunctionArn.split(':')[4];
         const usedLang = jobProps?.TargetLanguageCodes?.[0] || targetLang;
-        const outputFolder = `${accountId}-${jobId}-${usedLang}`;
-        const finalPath = `translated/${outputFolder}/${s3Key}`;
+        
+        // Dateinamen extrahieren (ohne Pfad)
+        const originalFileName = s3Key.split('/').pop();
+        // AWS Translate Schema: "lang.filename"
+        const expectedFileName = `${usedLang}.${originalFileName}`;
 
-        return { 
-          status: 'DONE', 
-          downloadPath: finalPath,
-          fileName: s3Key.split('/').pop() 
-        };
+        console.log(`Searching for file ending in: ${expectedFileName} containing JobId: ${jobId}`);
+
+        // STATT ZU RATEN: Wir suchen die Datei im S3
+        // Wir listen den Inhalt von "translated/" auf
+        const listCommand = new ListObjectsV2Command({
+          Bucket: bucketName,
+          Prefix: 'translated/'
+        });
+
+        const listRes = await s3Client.send(listCommand);
+        
+        // Finde den exakten Key
+        // 1. Muss Teil des JobIds im Pfad haben (Sicherheit)
+        // 2. Muss mit dem erwarteten Dateinamen enden
+        const foundObject = listRes.Contents?.find(obj => 
+          obj.Key && 
+          obj.Key.includes(jobId) && 
+          obj.Key.endsWith(expectedFileName)
+        );
+
+        if (foundObject && foundObject.Key) {
+          console.log(`File found confirmed: ${foundObject.Key}`);
+          return { 
+            status: 'DONE', 
+            downloadPath: foundObject.Key, // Der echte, validierte Pfad
+            fileName: expectedFileName 
+          };
+        } else {
+          // Fallback, falls Datei noch nicht sichtbar (S3 Eventual Consistency)
+          console.warn("Job completed but file not found in ListObjects yet.");
+          return { status: 'PROCESSING', jobStatus: 'FINALIZING_FILE' };
+        }
 
       } else if (status === 'FAILED' || status === 'COMPLETED_WITH_ERROR') {
         console.error('Job Failed Details:', JSON.stringify(jobProps));

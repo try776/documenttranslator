@@ -9,7 +9,7 @@ import outputs from '../amplify_outputs.json';
 // I18n & UI
 import './i18n';
 import { useTranslation } from 'react-i18next';
-import { FaCloudUploadAlt, FaSpinner, FaCheckCircle, FaGlobe, FaFilePdf, FaCopy, FaFileWord, FaShareAlt } from 'react-icons/fa';
+import { FaCloudUploadAlt, FaSpinner, FaCheckCircle, FaGlobe, FaFilePdf, FaCopy, FaFileWord, FaShareAlt, FaDownload } from 'react-icons/fa';
 import { QRCodeSVG } from 'qrcode.react';
 import './App.css';
 

@@ -2,7 +2,7 @@
 import { defineBackend } from '@aws-amplify/backend';
 import { auth } from './auth/resource';
 import { storage } from './storage/resource';
-import { data } from './data/resource'; // Neu
+import { data } from './data/resource';
 import { translateFunction } from './functions/translate/resource';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 
@@ -13,10 +13,14 @@ const backend = defineBackend({
   translateFunction,
 });
 
-// --- BERECHTIGUNGEN ---
+// --- FIX FÜR GAST ZUGRIFF ---
+// Erzwingt, dass unauthentifizierte Benutzer (Gäste) erlaubt sind.
+const { cfnIdentityPool } = backend.auth.resources.cfnResources;
+cfnIdentityPool.allowUnauthenticatedIdentities = true;
+
+// --- LAMBDA BERECHTIGUNGEN ---
 
 // 1. Bucket Name an Lambda übergeben
-// Wir nutzen 'as any', um den TypeScript Fehler zu umgehen (L2 Construct Zugriff)
 (backend.translateFunction.resources.lambda as any).addEnvironment(
   'STORAGE_DOCUMENTBUCKET_BUCKETNAME',
   backend.storage.resources.bucket.bucketName

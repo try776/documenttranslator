@@ -2,13 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { Amplify } from 'aws-amplify';
 import { uploadData, getUrl } from 'aws-amplify/storage';
 import { generateClient } from 'aws-amplify/data';
+import { fetchAuthSession } from 'aws-amplify/auth';
 import type { Schema } from '../amplify/data/resource';
 import outputs from '../amplify_outputs.json';
 
 // I18n & UI
 import './i18n';
 import { useTranslation } from 'react-i18next';
-import { FaCloudUploadAlt, FaDownload, FaSpinner, FaCheckCircle, FaGlobe, FaShareAlt, FaFilePdf, FaCopy } from 'react-icons/fa';
+import { FaCloudUploadAlt, FaDownload, FaSpinner, FaCheckCircle, FaGlobe, FaFilePdf, FaCopy } from 'react-icons/fa';
 import { QRCodeSVG } from 'qrcode.react';
 import './App.css';
 
@@ -74,6 +75,11 @@ function App() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  useEffect(() => {
+    // Initial Session Check
+    fetchAuthSession().catch(e => console.error("Session Init Error:", e));
+  }, []);
+
   if (shareFile) return <DownloadView fileName={shareFile} />;
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -97,11 +103,14 @@ function App() {
     if (!file) return;
     setStatus('UPLOADING');
     setProgress(0);
+    setErrorMsg(null);
 
     try {
-      const s3Path = `uploads/${Date.now()}-${file.name}`;
+      await fetchAuthSession(); // Session sicherstellen
+
+      const s3Path = `uploads/${Date.now()}-${file.name.replace(/\s+/g, '_')}`;
       
-      // KORREKTUR: 'path' statt 'key' verwenden
+      console.log('Starting upload to:', s3Path);
       await uploadData({
         path: s3Path, 
         data: file,
@@ -111,17 +120,22 @@ function App() {
       }).result;
       
       setStatus('PROCESSING');
+      console.log('Upload done, invoking Query...');
       
-      // Aufruf der Lambda Funktion via Data Client
-      const { data, errors } = await client.models.translateDocument({
+      // KORREKTUR: client.queries statt client.models
+      const { data, errors } = await client.queries.translateDocument({
         s3Key: s3Path,
         targetLang
       });
 
-      if (errors) throw new Error(errors[0].message);
+      if (errors) {
+        console.error('Query Errors:', errors);
+        throw new Error(errors[0].message);
+      }
       
-      // KORREKTUR: Wir erwarten jetzt direkt ein JSON Objekt, keinen String mehr
+      // JSON Parsing, da a.json() als String zurückkommt
       const resultData = data ? (typeof data === 'string' ? JSON.parse(data) : data) : {};
+      console.log('Query Result:', resultData);
 
       if (resultData.status === 'DONE' && resultData.downloadPath) {
         const urlData = await getUrl({ path: resultData.downloadPath });
@@ -133,7 +147,7 @@ function App() {
         throw new Error(resultData.error || 'Translation failed');
       }
     } catch (err: any) {
-      console.error(err);
+      console.error('Full Error Object:', err);
       setStatus('ERROR');
       setErrorMsg(err.message || t('errorGeneric'));
     }

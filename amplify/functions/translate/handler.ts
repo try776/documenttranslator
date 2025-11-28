@@ -3,7 +3,9 @@ import { TranslateClient, TranslateDocumentCommand } from '@aws-sdk/client-trans
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { Readable } from 'stream';
 
-const translateClient = new TranslateClient({});
+// KORREKTUR: Region explizit auf 'eu-central-1' (Frankfurt) setzen
+// Amazon Translate ist in sa-east-1 nicht verfügbar.
+const translateClient = new TranslateClient({ region: "eu-central-1" });
 const s3Client = new S3Client({});
 
 const streamToBuffer = async (stream: Readable): Promise<Buffer> => {
@@ -26,14 +28,14 @@ export const handler: Handler = async (event) => {
   }
 
   try {
-    // 1. Fetch
+    // 1. Fetch from S3 (lokale Region sa-east-1)
     console.log(JSON.stringify({ level: 'INFO', message: 'Fetching from S3', key: s3Key }));
     const getCommand = new GetObjectCommand({ Bucket: bucketName, Key: s3Key });
     const s3Item = await s3Client.send(getCommand);
     if (!s3Item.Body) throw new Error('Empty S3 Body');
     const fileBuffer = await streamToBuffer(s3Item.Body as Readable);
 
-    // 2. Translate
+    // 2. Translate (in eu-central-1)
     console.log(JSON.stringify({ level: 'INFO', message: 'Translating', targetLang }));
     const translateCommand = new TranslateDocumentCommand({
       Document: { Content: fileBuffer, ContentType: 'application/pdf' },
@@ -43,7 +45,7 @@ export const handler: Handler = async (event) => {
     const result = await translateClient.send(translateCommand);
     if (!result.TranslatedDocument?.Content) throw new Error('Translation failed');
 
-    // 3. Save
+    // 3. Save to S3 (lokale Region sa-east-1)
     const originalName = s3Key.split('/').pop();
     const newKey = `translated/translated-${originalName}`;
     
@@ -55,7 +57,6 @@ export const handler: Handler = async (event) => {
       ContentType: 'application/pdf'
     }));
 
-    // KORREKTUR: Objekt direkt zurückgeben, kein JSON.stringify nötig
     return {
       status: 'DONE',
       downloadPath: newKey,
@@ -64,7 +65,6 @@ export const handler: Handler = async (event) => {
 
   } catch (error: any) {
     console.error(JSON.stringify({ level: 'ERROR', message: error.message }));
-    // Auch Fehler als Objekt zurückgeben
     return { status: 'ERROR', error: error.message };
   }
 };

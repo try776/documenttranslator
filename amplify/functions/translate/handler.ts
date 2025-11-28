@@ -3,10 +3,11 @@ import { TranslateClient, TranslateDocumentCommand } from '@aws-sdk/client-trans
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { Readable } from 'stream';
 
-// Clients initialisieren (AWS SDK v3)
+// Initialisierung der Clients außerhalb des Handlers (Performance)
 const translateClient = new TranslateClient({});
 const s3Client = new S3Client({});
 
+// Hilfsfunktion: Stream zu Buffer konvertieren
 const streamToBuffer = async (stream: Readable): Promise<Buffer> => {
   return new Promise((resolve, reject) => {
     const chunks: Uint8Array[] = [];
@@ -17,41 +18,34 @@ const streamToBuffer = async (stream: Readable): Promise<Buffer> => {
 };
 
 export const handler: Handler = async (event) => {
-  const { s3Key, targetLang, action } = event.arguments || event.body ? JSON.parse(event.body) : event;
-  
-  // CloudWatch Log Start
+  // Parsing des Bodies, da Aufruf über API Gateway/Lambda Proxy kommt
+  const body = event.body ? JSON.parse(event.body) : event;
+  const { s3Key, targetLang } = body;
+
   console.log(JSON.stringify({ 
     level: 'INFO', 
-    message: 'Lambda triggered', 
-    action, 
+    message: 'Lambda Started', 
     s3Key, 
     targetLang 
   }));
 
-  if (!process.env.STORAGE_DOCUMENTBUCKET_BUCKETNAME) {
-    throw new Error('Bucket Name Env Variable missing');
-  }
   const bucketName = process.env.STORAGE_DOCUMENTBUCKET_BUCKETNAME;
+  if (!bucketName) {
+    console.error(JSON.stringify({ level: 'ERROR', message: 'Bucket Name env missing' }));
+    return { statusCode: 500, body: JSON.stringify({ error: 'Server Configuration Error' }) };
+  }
 
   try {
-    // 1. Datei von S3 holen
-    console.log(JSON.stringify({ level: 'INFO', message: 'Fetching file from S3', bucket: bucketName, key: s3Key }));
-    
-    const getCommand = new GetObjectCommand({
-      Bucket: bucketName,
-      Key: s3Key
-    });
+    // 1. Original PDF von S3 holen
+    console.log(JSON.stringify({ level: 'INFO', message: 'Fetching object from S3', bucket: bucketName, key: s3Key }));
+    const getCommand = new GetObjectCommand({ Bucket: bucketName, Key: s3Key });
     const s3Item = await s3Client.send(getCommand);
-    
-    if (!s3Item.Body) {
-      throw new Error('No body in S3 object');
-    }
 
+    if (!s3Item.Body) throw new Error('Empty S3 Body');
     const fileBuffer = await streamToBuffer(s3Item.Body as Readable);
 
-    // 2. Amazon Translate aufrufen (Synchronous Document Translation)
-    console.log(JSON.stringify({ level: 'INFO', message: 'Calling Amazon Translate', targetLang }));
-    
+    // 2. An Amazon Translate senden (Real-time Document Translation)
+    console.log(JSON.stringify({ level: 'INFO', message: 'Invoking Amazon Translate', targetLang }));
     const translateCommand = new TranslateDocumentCommand({
       Document: {
         Content: fileBuffer,
@@ -61,31 +55,27 @@ export const handler: Handler = async (event) => {
       TargetLanguageCode: targetLang
     });
 
-    const translationResult = await translateClient.send(translateCommand);
+    const result = await translateClient.send(translateCommand);
     
-    if (!translationResult.TranslatedDocument || !translationResult.TranslatedDocument.Content) {
-      throw new Error('Translation returned empty content');
+    if (!result.TranslatedDocument || !result.TranslatedDocument.Content) {
+      throw new Error('Translation failed: No content returned');
     }
 
-    // 3. Ergebnis zurück in S3 speichern
-    // Wir ändern den Pfad von 'uploads/...' zu 'translated/...'
+    // 3. Übersetztes PDF zurück in S3 speichern
     const originalName = s3Key.split('/').pop();
     const newKey = `translated/translated-${originalName}`;
-
-    console.log(JSON.stringify({ level: 'INFO', message: 'Uploading result to S3', newKey }));
-
-    const putCommand = new PutObjectCommand({
+    
+    console.log(JSON.stringify({ level: 'INFO', message: 'Saving result to S3', newKey }));
+    
+    await s3Client.send(new PutObjectCommand({
       Bucket: bucketName,
       Key: newKey,
-      Body: translationResult.TranslatedDocument.Content,
+      Body: result.TranslatedDocument.Content,
       ContentType: 'application/pdf'
-    });
+    }));
 
-    await s3Client.send(putCommand);
+    console.log(JSON.stringify({ level: 'INFO', message: 'Job completed successfully' }));
 
-    console.log(JSON.stringify({ level: 'INFO', message: 'Process completed successfully' }));
-
-    // Rückgabe für Frontend
     return {
       statusCode: 200,
       headers: {
@@ -100,7 +90,12 @@ export const handler: Handler = async (event) => {
     };
 
   } catch (error: any) {
-    console.error(JSON.stringify({ level: 'ERROR', message: 'Translation failed', error: error.message, stack: error.stack }));
+    console.error(JSON.stringify({ 
+      level: 'ERROR', 
+      message: 'Processing Failed', 
+      error: error.message, 
+      stack: error.stack 
+    }));
     
     return {
       statusCode: 500,
@@ -108,10 +103,7 @@ export const handler: Handler = async (event) => {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Headers": "*"
       },
-      body: JSON.stringify({
-        status: 'ERROR',
-        error: error.message
-      })
+      body: JSON.stringify({ error: error.message || 'Internal Server Error' })
     };
   }
 };

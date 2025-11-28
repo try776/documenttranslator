@@ -1,4 +1,3 @@
-// src/i18n.ts
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import LanguageDetector from 'i18next-browser-languagedetector';
@@ -6,38 +5,40 @@ import LanguageDetector from 'i18next-browser-languagedetector';
 const resources = {
   en: {
     translation: {
-      appTitle: "Document Translator",
+      title: "Document Translator",
       subtitle: "(v 1.0.1 - Amazon Translate & Share)",
-      dropzone: "Select PDF file...",
+      secureDl: "Secure Download",
+      download: "Download PDF",
+      back: "Back to Translator",
+      selectFile: "Select PDF file...",
+      translateTo: "Translate to:",
       translateBtn: "Translate Document",
       processing: "Translating...",
       uploading: "Uploading: {{progress}}%",
       success: "Translation Complete!",
-      download: "Download PDF",
       share: "Share Result",
-      scanQr: "Scan QR code for mobile download",
-      errorFile: "Please select a valid PDF file.",
-      errorGeneric: "An error occurred.",
-      secureDl: "Secure Download",
-      back: "Back to Translator"
+      scanQr: "Scan QR code or copy link",
+      errorSelect: "Please select a PDF file.",
+      errorGeneric: "An error occurred."
     }
   },
   de: {
     translation: {
-      appTitle: "Dokumenten Übersetzer",
+      title: "Dokumenten Übersetzer",
       subtitle: "(v 1.0.1 - Amazon Translate & Share)",
-      dropzone: "PDF Datei auswählen...",
+      secureDl: "Sicherer Download",
+      download: "PDF Herunterladen",
+      back: "Zurück zum Übersetzer",
+      selectFile: "PDF Datei auswählen...",
+      translateTo: "Übersetzen nach:",
       translateBtn: "Dokument übersetzen",
       processing: "Übersetze...",
       uploading: "Lade hoch: {{progress}}%",
       success: "Übersetzung abgeschlossen!",
-      download: "PDF Herunterladen",
       share: "Ergebnis teilen",
-      scanQr: "QR-Code scannen für Download",
-      errorFile: "Bitte wählen Sie eine gültige PDF-Datei.",
-      errorGeneric: "Ein Fehler ist aufgetreten.",
-      secureDl: "Sicherer Download",
-      back: "Zurück zum Übersetzer"
+      scanQr: "QR-Code scannen oder Link kopieren",
+      errorSelect: "Bitte wählen Sie eine PDF-Datei.",
+      errorGeneric: "Ein Fehler ist aufgetreten."
     }
   }
 };

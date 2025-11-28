@@ -8,7 +8,7 @@ export const storage = defineStorage({
       allow.authenticated.to(['write', 'read'])
     ],
     'translated/*': [
-      allow.guest.to(['read', 'write']), // Write nötig, damit Lambda via SDK (als backend role) oder Client agieren kann, hier für Public Download
+      allow.guest.to(['read', 'write']),
       allow.authenticated.to(['read', 'write'])
     ]
   })

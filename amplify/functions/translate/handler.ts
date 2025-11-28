@@ -1,83 +1,88 @@
-import { Handler } from 'aws-lambda';
-import { TranslateClient, TranslateDocumentCommand } from '@aws-sdk/client-translate';
-import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
-import { Readable } from 'stream';
+import { Handler, Context } from 'aws-lambda';
+import { 
+  TranslateClient, 
+  StartTextTranslationJobCommand, 
+  DescribeTextTranslationJobCommand 
+} from '@aws-sdk/client-translate';
 
-// WICHTIG: Region explizit auf Frankfurt (eu-central-1) setzen
 const translateClient = new TranslateClient({ region: "eu-central-1" });
-const s3Client = new S3Client({}); // S3 nutzt die lokale Region (sa-east-1)
 
-const streamToBuffer = async (stream: Readable): Promise<Buffer> => {
-  return new Promise((resolve, reject) => {
-    const chunks: Uint8Array[] = [];
-    stream.on('data', (chunk) => chunks.push(chunk));
-    stream.on('error', reject);
-    stream.on('end', () => resolve(Buffer.concat(chunks)));
-  });
-};
-
-export const handler: Handler = async (event) => {
-  // Argumente sicher abrufen
-  const args = event.arguments || {};
-  const { s3Key, targetLang } = args;
-
-  console.log(JSON.stringify({ level: 'INFO', message: 'Lambda Started', s3Key, targetLang }));
-
+export const handler: Handler = async (event, context: Context) => {
+  const { s3Key, targetLang, jobId, action } = event.arguments;
   const bucketName = process.env.STORAGE_DOCUMENTBUCKET_BUCKETNAME;
-  if (!bucketName) {
-    console.error("Bucket Name Env missing");
-    throw new Error('Server Configuration Error: Bucket missing');
+  const dataAccessRoleArn = process.env.TRANSLATE_ROLE_ARN;
+
+  if (!bucketName || !dataAccessRoleArn) {
+    throw new Error('Configuration missing (Bucket or Role ARN)');
   }
 
   try {
-    // 1. Datei von S3 laden
-    console.log(`Fetching from S3 bucket: ${bucketName} key: ${s3Key}`);
-    const getCommand = new GetObjectCommand({ Bucket: bucketName, Key: s3Key });
-    const s3Item = await s3Client.send(getCommand);
-    
-    if (!s3Item.Body) throw new Error('Empty S3 Body');
-    
-    // Datei in Speicher laden (Hier wird RAM benötigt!)
-    const fileBuffer = await streamToBuffer(s3Item.Body as Readable);
-    console.log(`File loaded. Size: ${fileBuffer.length} bytes`);
+    // --- ACTION: START ---
+    if (action === 'start') {
+      console.log(`Starting Job for: ${s3Key} to ${targetLang}`);
+      
+      const inputUri = `s3://${bucketName}/${s3Key}`;
+      const outputUri = `s3://${bucketName}/translated/`;
+      const jobName = `job-${Date.now()}`;
 
-    // 2. An Amazon Translate senden
-    console.log(`Sending to Amazon Translate (eu-central-1). Target: ${targetLang}`);
-    const translateCommand = new TranslateDocumentCommand({
-      Document: { Content: fileBuffer, ContentType: 'application/pdf' },
-      SourceLanguageCode: 'auto',
-      TargetLanguageCode: targetLang
-    });
-    
-    const result = await translateClient.send(translateCommand);
-    
-    if (!result.TranslatedDocument?.Content) {
-      throw new Error('Translation failed: No content returned from Amazon Translate');
+      const command = new StartTextTranslationJobCommand({
+        JobName: jobName,
+        InputDataConfig: { 
+          S3Uri: inputUri,
+          ContentType: 'application/pdf'
+        },
+        OutputDataConfig: { S3Uri: outputUri },
+        DataAccessRoleArn: dataAccessRoleArn,
+        SourceLanguageCode: 'auto',
+        TargetLanguageCodes: [targetLang]
+      });
+
+      const res = await translateClient.send(command);
+      return { status: 'JOB_STARTED', jobId: res.JobId };
     }
-    console.log('Translation received.');
 
-    // 3. Ergebnis speichern
-    const originalName = s3Key.split('/').pop();
-    const newKey = `translated/translated-${originalName}`;
-    
-    console.log(`Saving result to S3: ${newKey}`);
-    await s3Client.send(new PutObjectCommand({
-      Bucket: bucketName,
-      Key: newKey,
-      Body: result.TranslatedDocument.Content,
-      ContentType: 'application/pdf'
-    }));
+    // --- ACTION: CHECK ---
+    if (action === 'check') {
+      const command = new DescribeTextTranslationJobCommand({ JobId: jobId });
+      const res = await translateClient.send(command);
+      const jobProps = res.TextTranslationJobProperties;
+      const status = jobProps?.JobStatus;
 
-    console.log('Success.');
-    return {
-      status: 'DONE',
-      downloadPath: newKey,
-      fileName: `translated-${originalName}`
-    };
+      if (status === 'COMPLETED') {
+        // Pfad zusammenbauen: s3://bucket/translated/ACCOUNT-JOBID-LANG/inputKey
+        // Wir brauchen die Account ID aus dem Context
+        const accountId = context.invokedFunctionArn.split(':')[4];
+        
+        // Amazon Translate Output Struktur:
+        // outputUri + accountId-JobId-TargetLang + / + originalS3Key
+        // Achtung: s3Key enthält bereits "uploads/...", das wird beibehalten.
+        
+        // Wir konstruieren den Pfad relativ zum Bucket root für 'getUrl'
+        // Folder Name Format: accountId-JobId-TargetLanguageCode
+        // Aber TargetLanguageCode im Folder ist oft klein oder groß? AWS nutzt den Code vom Input.
+        // Wir holen ihn aus den JobProps sicherheitshalber
+        const usedLang = jobProps?.TargetLanguageCodes?.[0] || targetLang;
+        
+        const outputFolder = `${accountId}-${jobId}-${usedLang}`;
+        const finalPath = `translated/${outputFolder}/${s3Key}`;
+
+        return { 
+          status: 'DONE', 
+          downloadPath: finalPath,
+          fileName: s3Key.split('/').pop() 
+        };
+
+      } else if (status === 'FAILED' || status === 'COMPLETED_WITH_ERROR') {
+        return { status: 'ERROR', error: jobProps?.Message || 'Translation Job Failed' };
+      } else {
+        return { status: 'PROCESSING', jobStatus: status };
+      }
+    }
+
+    return { status: 'ERROR', error: 'Invalid Action' };
 
   } catch (error: any) {
-    console.error("Lambda Error Details:", JSON.stringify(error, Object.getOwnPropertyNames(error)));
-    // Fehler zurückgeben, damit das Frontend ihn anzeigen kann
-    return { status: 'ERROR', error: error.message || 'Unknown Server Error' };
+    console.error("Lambda Error:", error);
+    return { status: 'ERROR', error: error.message };
   }
 };

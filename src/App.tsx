@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Amplify } from 'aws-amplify';
 import { uploadData, getUrl } from 'aws-amplify/storage';
 import { generateClient } from 'aws-amplify/data';
@@ -34,6 +34,7 @@ function DownloadView({ fileName }: { fileName: string }) {
   useEffect(() => {
     const fetchLink = async () => {
       try {
+        // Pfad Logik: Wenn der Pfad schon komplex ist (mit JobID), nehmen wir ihn direkt
         const path = fileName.startsWith('translated/') ? fileName : `translated/${fileName}`;
         const link = await getUrl({ path, options: { validateObjectExistence: false, expiresIn: 3600 }});
         setUrl(link.url.toString());
@@ -74,10 +75,13 @@ function App() {
   const [shareLink, setShareLink] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  
+  // Ref für Polling Interval
+  const pollRef = useRef<any>(null);
 
   useEffect(() => {
-    // Initial Session Check
     fetchAuthSession().catch(e => console.error("Session Init Error:", e));
+    return () => clearInterval(pollRef.current);
   }, []);
 
   if (shareFile) return <DownloadView fileName={shareFile} />;
@@ -106,11 +110,10 @@ function App() {
     setErrorMsg(null);
 
     try {
-      await fetchAuthSession(); // Session sicherstellen
+      await fetchAuthSession();
 
       const s3Path = `uploads/${Date.now()}-${file.name.replace(/\s+/g, '_')}`;
       
-      console.log('Starting upload to:', s3Path);
       await uploadData({
         path: s3Path, 
         data: file,
@@ -120,34 +123,63 @@ function App() {
       }).result;
       
       setStatus('PROCESSING');
-      console.log('Upload done, invoking Query...');
       
-      // KORREKTUR: client.queries statt client.models
-      const { data, errors } = await client.queries.translateDocument({
+      // 1. START JOB
+      const { data: startData, errors: startErrors } = await client.queries.translateDocument({
         s3Key: s3Path,
-        targetLang
+        targetLang,
+        action: 'start'
       });
 
-      if (errors) {
-        console.error('Query Errors:', errors);
-        throw new Error(errors[0].message);
-      }
+      if (startErrors) throw new Error(startErrors[0].message);
+      const startRes = startData ? JSON.parse(startData as string) : {};
       
-      // JSON Parsing, da a.json() als String zurückkommt
-      const resultData = data ? (typeof data === 'string' ? JSON.parse(data) : data) : {};
-      console.log('Query Result:', resultData);
-
-      if (resultData.status === 'DONE' && resultData.downloadPath) {
-        const urlData = await getUrl({ path: resultData.downloadPath });
-        setResultUrl(urlData.url.toString());
-        const cleanName = resultData.fileName || resultData.downloadPath.split('/').pop();
-        setShareLink(`${window.location.origin}/?file=${encodeURIComponent(cleanName)}`);
-        setStatus('DONE');
-      } else {
-        throw new Error(resultData.error || 'Translation failed');
+      if (startRes.status !== 'JOB_STARTED') {
+        throw new Error(startRes.error || 'Failed to start job');
       }
+
+      const jobId = startRes.jobId;
+      console.log('Job Started:', jobId);
+
+      // 2. POLL STATUS
+      pollRef.current = setInterval(async () => {
+        try {
+          const { data: checkData, errors: checkErrors } = await client.queries.translateDocument({
+            jobId,
+            action: 'check',
+            s3Key: s3Path // Wird für Pfad-Konstruktion benötigt
+          });
+
+          if (checkErrors) {
+             console.error(checkErrors);
+             return; 
+          }
+
+          const checkRes = checkData ? JSON.parse(checkData as string) : {};
+          console.log('Job Status:', checkRes);
+
+          if (checkRes.status === 'DONE') {
+             clearInterval(pollRef.current);
+             
+             // Erfolg
+             const urlData = await getUrl({ path: checkRes.downloadPath });
+             setResultUrl(urlData.url.toString());
+             
+             // Share Link: Wir müssen den vollen Pfad enkodieren, damit DownloadView ihn findet
+             setShareLink(`${window.location.origin}/?file=${encodeURIComponent(checkRes.downloadPath)}`);
+             setStatus('DONE');
+          } else if (checkRes.status === 'ERROR') {
+             clearInterval(pollRef.current);
+             setStatus('ERROR');
+             setErrorMsg(checkRes.error);
+          }
+        } catch (e) {
+          console.error("Polling error", e);
+        }
+      }, 5000); // Alle 5 Sekunden prüfen
+
     } catch (err: any) {
-      console.error('Full Error Object:', err);
+      console.error(err);
       setStatus('ERROR');
       setErrorMsg(err.message || t('errorGeneric'));
     }

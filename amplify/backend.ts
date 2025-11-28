@@ -1,10 +1,9 @@
-// amplify/backend.ts
 import { defineBackend } from '@aws-amplify/backend';
 import { auth } from './auth/resource';
 import { storage } from './storage/resource';
 import { data } from './data/resource';
 import { translateFunction } from './functions/translate/resource';
-import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
+import { PolicyStatement, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
 
 const backend = defineBackend({
   auth,
@@ -13,32 +12,39 @@ const backend = defineBackend({
   translateFunction,
 });
 
-// --- FIX FÜR GAST ZUGRIFF ---
-// Erzwingt, dass unauthentifizierte Benutzer (Gäste) erlaubt sind.
-const { cfnIdentityPool } = backend.auth.resources.cfnResources;
-cfnIdentityPool.allowUnauthenticatedIdentities = true;
+// FIX: Gast-Zugriff erzwingen
+(backend.auth.resources.cfnResources.cfnIdentityPool as any).allowUnauthenticatedIdentities = true;
 
-// --- LAMBDA BERECHTIGUNGEN ---
+// 1. IAM Service-Rolle für Amazon Translate erstellen
+// Diese Rolle erlaubt Translate, Dateien von S3 zu lesen und zu schreiben
+const translateServiceRole = new Role(backend.createStack('TranslateRoleStack'), 'TranslateServiceRole', {
+  assumedBy: new ServicePrincipal('translate.amazonaws.com'),
+});
 
-// 1. Bucket Name an Lambda übergeben
+// Zugriff auf Bucket gewähren
+backend.storage.resources.bucket.grantReadWrite(translateServiceRole);
+
+// 2. Lambda Konfiguration
+// Wir übergeben den ARN der Rolle an die Lambda, damit sie den Job damit starten kann
 (backend.translateFunction.resources.lambda as any).addEnvironment(
   'STORAGE_DOCUMENTBUCKET_BUCKETNAME',
   backend.storage.resources.bucket.bucketName
 );
+(backend.translateFunction.resources.lambda as any).addEnvironment(
+  'TRANSLATE_ROLE_ARN',
+  translateServiceRole.roleArn
+);
 
-// 2. S3 Zugriff für die Lambda (Read/Write)
-const s3Policy = new PolicyStatement({
-  actions: ['s3:GetObject', 's3:PutObject'],
-  resources: [
-    backend.storage.resources.bucket.bucketArn,
-    `${backend.storage.resources.bucket.bucketArn}/*`
+// 3. Lambda Rechte
+// Lambda darf Jobs starten/prüfen und die Rolle an Translate "weiterreichen" (PassRole)
+backend.translateFunction.resources.lambda.addToRolePolicy(new PolicyStatement({
+  actions: [
+    'translate:StartTextTranslationJob', 
+    'translate:DescribeTextTranslationJob',
+    'iam:PassRole'
   ],
-});
-backend.translateFunction.resources.lambda.addToRolePolicy(s3Policy);
-
-// 3. Amazon Translate Berechtigung
-const translatePolicy = new PolicyStatement({
-  actions: ['translate:TranslateDocument'],
   resources: ['*'],
-});
-backend.translateFunction.resources.lambda.addToRolePolicy(translatePolicy);
+}));
+
+// Lambda darf auch S3 nutzen (optional für Checks)
+backend.storage.resources.bucket.grantReadWrite(backend.translateFunction.resources.lambda);

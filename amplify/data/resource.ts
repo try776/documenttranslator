@@ -1,14 +1,15 @@
-// amplify/data/resource.ts
 import { type ClientSchema, a, defineData } from '@aws-amplify/backend';
 import { translateFunction } from '../functions/translate/resource';
 
 const schema = a.schema({
   translateDocument: a.query()
     .arguments({
-      s3Key: a.string().required(),
-      targetLang: a.string().required()
+      s3Key: a.string(),       // Pfad zur Datei (optional bei Check)
+      targetLang: a.string(),  // Sprache (optional bei Check)
+      jobId: a.string(),       // Job ID (für Check)
+      action: a.string()       // 'start' oder 'check'
     })
-    .returns(a.json()) // Wir geben ein JSON Objekt zurück
+    .returns(a.json())
     .authorization(allow => [allow.guest(), allow.authenticated()])
     .handler(a.handler.function(translateFunction))
 });

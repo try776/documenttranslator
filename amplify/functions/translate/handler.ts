@@ -5,7 +5,7 @@ import {
   DescribeTextTranslationJobCommand 
 } from '@aws-sdk/client-translate';
 
-// Region Frankfurt (eu-central-1) wird automatisch genutzt
+// Client nutzt die Region der Lambda (eu-central-1)
 const translateClient = new TranslateClient({});
 
 export const handler: Handler = async (event, context: Context) => {
@@ -26,16 +26,24 @@ export const handler: Handler = async (event, context: Context) => {
       const outputUri = `s3://${bucketName}/translated/`;
       const jobName = `job-${Date.now()}`;
 
-      // DER FIX: 'application/octet-stream' nutzen!
-      // Das umgeht die strikte 'application/pdf' Prüfung, die oft fehlschlägt.
-      // AWS Translate erkennt das PDF dann automatisch an der Dateiendung.
-      const contentTypeHack = 'application/octet-stream' as any;
+      // Dateityp dynamisch erkennen
+      const lowerKey = s3Key.toLowerCase();
+      let contentType = 'application/octet-stream'; // Fallback
+
+      if (lowerKey.endsWith('.pdf')) {
+        contentType = 'application/pdf';
+      } else if (lowerKey.endsWith('.docx')) {
+        // Der offizielle MIME-Type für .docx
+        contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      }
+
+      console.log(`Detected ContentType: ${contentType}`);
 
       const command = new StartTextTranslationJobCommand({
         JobName: jobName,
         InputDataConfig: { 
           S3Uri: inputUri,
-          ContentType: contentTypeHack
+          ContentType: contentType
         },
         OutputDataConfig: { S3Uri: outputUri },
         DataAccessRoleArn: dataAccessRoleArn,
@@ -43,7 +51,6 @@ export const handler: Handler = async (event, context: Context) => {
         TargetLanguageCodes: [targetLang]
       });
 
-      console.log("Sending Command with Octet-Stream:", JSON.stringify(command));
       const res = await translateClient.send(command);
       return { status: 'JOB_STARTED', jobId: res.JobId };
     }

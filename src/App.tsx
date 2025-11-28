@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, ChangeEvent } from 'react';
 import { Amplify } from 'aws-amplify';
 import { uploadData, getUrl } from 'aws-amplify/storage';
 import { generateClient } from 'aws-amplify/data';
@@ -9,7 +9,7 @@ import outputs from '../amplify_outputs.json';
 // I18n & UI
 import './i18n';
 import { useTranslation } from 'react-i18next';
-import { FaCloudUploadAlt, FaDownload, FaSpinner, FaCheckCircle, FaGlobe, FaFilePdf, FaCopy } from 'react-icons/fa';
+import { FaCloudUploadAlt, FaDownload, FaSpinner, FaCheckCircle, FaGlobe, FaFilePdf, FaCopy, FaFileWord } from 'react-icons/fa';
 import { QRCodeSVG } from 'qrcode.react';
 import './App.css';
 
@@ -34,7 +34,6 @@ function DownloadView({ fileName }: { fileName: string }) {
   useEffect(() => {
     const fetchLink = async () => {
       try {
-        // Pfad Logik: Wenn der Pfad schon komplex ist (mit JobID), nehmen wir ihn direkt
         const path = fileName.startsWith('translated/') ? fileName : `translated/${fileName}`;
         const link = await getUrl({ path, options: { validateObjectExistence: false, expiresIn: 3600 }});
         setUrl(link.url.toString());
@@ -47,10 +46,15 @@ function DownloadView({ fileName }: { fileName: string }) {
     fetchLink();
   }, [fileName]);
 
+  const isDocx = fileName.toLowerCase().endsWith('.docx');
+
   return (
     <div className="app-container" style={{ textAlign: 'center', paddingTop: 50 }}>
       <h1>{t('secureDl')}</h1>
-      <FaFilePdf size={60} style={{ color: 'var(--primary)', margin: '20px 0' }} />
+      {isDocx ? 
+        <FaFileWord size={60} style={{ color: '#2b579a', margin: '20px 0' }} /> :
+        <FaFilePdf size={60} style={{ color: 'var(--primary)', margin: '20px 0' }} />
+      }
       <p style={{ wordBreak: 'break-all', color: '#fff' }}>{fileName.split('/').pop()}</p>
       {loading ? <FaSpinner className="icon-spin" /> : url ? (
         <a href={url} className="primary-btn" style={{ maxWidth: '200px', margin: '0 auto', textDecoration: 'none' }}>
@@ -76,7 +80,6 @@ function App() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   
-  // Ref für Polling Interval
   const pollRef = useRef<any>(null);
 
   useEffect(() => {
@@ -86,12 +89,27 @@ function App() {
 
   if (shareFile) return <DownloadView fileName={shareFile} />;
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files?.[0]) {
-      setFile(e.target.files[0]);
-      setStatus('IDLE');
-      setErrorMsg(null);
-      setResultUrl(null);
+  const handleFileSelect = (event: ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = event.target.files ? event.target.files[0] : null;
+    setFile(null); 
+    setStatus('IDLE');
+    setErrorMsg(null); 
+    setResultUrl(null);
+    setShareLink(null);
+    setProgress(0);
+
+    if (selectedFile) {
+      const name = selectedFile.name.toLowerCase();
+      // Prüfen ob PDF oder DOCX
+      const isPdf = selectedFile.type === 'application/pdf' || name.endsWith('.pdf');
+      const isDocx = name.endsWith('.docx') || 
+                     selectedFile.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+      if (isPdf || isDocx) {
+        setFile(selectedFile);
+      } else {
+        setErrorMsg('Please select a PDF or DOCX file.');
+      }
     }
   };
 
@@ -112,7 +130,9 @@ function App() {
     try {
       await fetchAuthSession();
 
-      const s3Path = `uploads/${Date.now()}-${file.name.replace(/\s+/g, '_')}`;
+      // Leerzeichen im Dateinamen ersetzen
+      const cleanName = file.name.replace(/\s+/g, '_');
+      const s3Path = `uploads/${Date.now()}-${cleanName}`;
       
       await uploadData({
         path: s3Path, 
@@ -147,7 +167,7 @@ function App() {
           const { data: checkData, errors: checkErrors } = await client.queries.translateDocument({
             jobId,
             action: 'check',
-            s3Key: s3Path // Wird für Pfad-Konstruktion benötigt
+            s3Key: s3Path
           });
 
           if (checkErrors) {
@@ -161,11 +181,9 @@ function App() {
           if (checkRes.status === 'DONE') {
              clearInterval(pollRef.current);
              
-             // Erfolg
              const urlData = await getUrl({ path: checkRes.downloadPath });
              setResultUrl(urlData.url.toString());
              
-             // Share Link: Wir müssen den vollen Pfad enkodieren, damit DownloadView ihn findet
              setShareLink(`${window.location.origin}/?file=${encodeURIComponent(checkRes.downloadPath)}`);
              setStatus('DONE');
           } else if (checkRes.status === 'ERROR') {
@@ -176,7 +194,7 @@ function App() {
         } catch (e) {
           console.error("Polling error", e);
         }
-      }, 5000); // Alle 5 Sekunden prüfen
+      }, 5000);
 
     } catch (err: any) {
       console.error(err);
@@ -198,8 +216,17 @@ function App() {
       <main className="card">
         <div className={`file-input-wrapper ${file ? 'active' : ''}`}>
           <label style={{ width: '100%', display: 'block', cursor: 'pointer' }}>
-            <input type="file" accept=".pdf" onChange={handleFileSelect} hidden disabled={status === 'UPLOADING' || status === 'PROCESSING'} />
-            <FaCloudUploadAlt size={50} color={file ? 'var(--primary)' : '#666'} />
+            <input 
+              type="file" 
+              accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" 
+              onChange={handleFileSelect} 
+              hidden 
+              disabled={status === 'UPLOADING' || status === 'PROCESSING'} 
+            />
+            {file && file.name.endsWith('.docx') ? 
+              <FaFileWord size={50} color="#2b579a" /> :
+              <FaCloudUploadAlt size={50} color={file ? 'var(--primary)' : '#666'} />
+            }
             <p>{file ? file.name : t('selectFile')}</p>
           </label>
         </div>

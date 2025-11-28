@@ -1,47 +1,83 @@
-/* src/App.css */
 :root {
   --primary: #ff9900;          /* AWS Orange */
-  --primary-hover: #e68a00;
-  --bg-color: #1a1a1a;         /* Dunkler Hintergrund */
-  --card-bg: #2d2d2d;          /* Panel Hintergrund */
+  --primary-hover: #ffad33;
+  --bg-color: #0f111a;         /* Sehr dunkles Blau/Grau für Background */
+  --card-bg: #1e212b;          /* Etwas helleres Grau für die Karte */
   --text-color: #ffffff;
-  --text-secondary: #a0a0a0;
-  --border-color: #444;
-  --success: #4CAF50;
+  --text-secondary: #94a3b8;
+  --border-color: #333b4d;
+  --success: #10b981;          /* Modernes Grün */
+  --input-bg: #141720;
 }
 
-/* Globales Reset für Body, falls index.css leer ist */
+/* Global Reset */
+* {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
   background-color: var(--bg-color);
   color: var(--text-color);
-  display: flex;
-  justify-content: center;
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .app-container {
   width: 100%;
-  max-width: 500px;
-  margin-top: 40px;
+  max-width: 480px;
   padding: 20px;
+  margin-top: 40px;
   position: relative;
 }
 
-/* Language Switcher (Oben Rechts) */
+/* --- Typography & Header --- */
+h1 {
+  font-size: 1.8rem;
+  margin: 0 0 10px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  letter-spacing: -0.5px;
+}
+
+.subtitle {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  margin-bottom: 0;
+  line-height: 1.5;
+}
+
+.header {
+  text-align: center;
+  margin-bottom: 35px;
+}
+
+/* --- Cards --- */
+.card {
+  background-color: var(--card-bg);
+  padding: 30px;
+  border-radius: 16px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border-color);
+  transition: transform 0.2s ease;
+}
+
+/* --- Language Switch --- */
 .lang-switch {
   position: absolute;
-  top: 0;
+  top: -40px;
   right: 20px;
-  background: rgba(0, 0, 0, 0.2);
-  padding: 5px 10px;
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
+  padding: 6px 12px;
   border-radius: 20px;
-  font-size: 0.9rem;
+  border: 1px solid var(--border-color);
 }
 
 .lang-switch button {
@@ -50,70 +86,34 @@ body {
   color: var(--text-secondary);
   cursor: pointer;
   font-weight: 600;
+  font-size: 0.85rem;
   padding: 0 5px;
   transition: color 0.2s;
 }
 
-.lang-switch button:hover {
-  color: #fff;
-}
+.lang-switch button:hover { color: #fff; }
+.lang-switch button.active { color: var(--primary); }
 
-.lang-switch button.active {
-  color: var(--primary);
-  text-decoration: underline;
-}
-
-/* Header Bereich */
-.header {
-  text-align: center;
-  margin-bottom: 30px;
-  margin-top: 20px;
-}
-
-.header h1 {
-  font-size: 2rem;
-  margin: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-}
-
-.subtitle {
-  color: var(--text-secondary);
-  margin-top: 5px;
-  font-size: 0.9rem;
-}
-
-/* Hauptkarte */
-.card {
-  background-color: var(--card-bg);
-  padding: 30px;
-  border-radius: 12px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
-  border: 1px solid var(--border-color);
-}
-
-/* Upload Bereich */
+/* --- File Upload Area --- */
 .file-input-wrapper {
   border: 2px dashed var(--border-color);
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 40px 20px;
   text-align: center;
   cursor: pointer;
-  transition: all 0.3s ease;
-  background: rgba(255, 255, 255, 0.02);
-  margin-bottom: 20px;
+  transition: all 0.2s ease;
+  background: rgba(255, 255, 255, 0.01);
+  margin-bottom: 25px;
 }
 
 .file-input-wrapper:hover {
   border-color: var(--primary);
-  background: rgba(255, 153, 0, 0.05);
+  background: rgba(255, 153, 0, 0.03);
 }
 
 .file-input-wrapper.active {
   border-color: var(--primary);
-  background: rgba(255, 153, 0, 0.1);
+  background: rgba(255, 153, 0, 0.08);
 }
 
 .file-input-wrapper p {
@@ -122,123 +122,189 @@ body {
   font-weight: 500;
 }
 
-/* Eingabefelder & Buttons */
+/* --- Inputs & Selects --- */
+.form-group {
+  margin-bottom: 20px;
+  text-align: left;
+}
+
+label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
 select {
   width: 100%;
-  padding: 12px;
-  background-color: #1a1a1a;
+  padding: 14px;
+  background-color: var(--input-bg);
   border: 1px solid var(--border-color);
   color: white;
-  border-radius: 6px;
-  margin-bottom: 15px;
+  border-radius: 8px;
   font-size: 1rem;
   outline: none;
   cursor: pointer;
+  appearance: none; /* Entfernt Standard-Pfeil */
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a0a0a0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 15px center;
+  background-size: 16px;
 }
 
 select:focus {
   border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(255, 153, 0, 0.2);
 }
 
+/* --- Buttons --- */
 .primary-btn {
   width: 100%;
   padding: 14px;
-  background-color: var(--primary);
+  background: var(--primary);
   color: #000;
   border: none;
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 1rem;
-  font-weight: bold;
+  font-weight: 700;
   cursor: pointer;
-  transition: background 0.2s, transform 0.1s;
+  transition: all 0.2s;
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  margin-top: 10px;
 }
 
 .primary-btn:hover:not(:disabled) {
-  background-color: var(--primary-hover);
+  background: var(--primary-hover);
   transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(255, 153, 0, 0.3);
 }
 
-.primary-btn:active:not(:disabled) {
-  transform: translateY(0);
-}
+.primary-btn:active:not(:disabled) { transform: translateY(0); }
 
 .primary-btn:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
-  filter: grayscale(0.5);
+  filter: grayscale(0.8);
 }
 
-/* Ergebnis Bereich */
+.secondary-btn {
+  background: #334155;
+  color: white;
+  margin-top: 15px;
+}
+.secondary-btn:hover { background: #475569; }
+
+/* --- Result Area --- */
 .result-area {
   margin-top: 30px;
-  text-align: center;
   border-top: 1px solid var(--border-color);
-  padding-top: 20px;
-  animation: fadeIn 0.5s ease-out;
+  padding-top: 25px;
+  text-align: center;
+  animation: fadeIn 0.4s ease-out;
 }
 
-.result-area h3 {
+.result-header {
   color: var(--success);
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 20px;
 }
 
-.download-link {
-  display: inline-flex;
+/* Container für QR und Links */
+.share-container {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.qr-wrapper {
+  background: white;
+  padding: 12px;
+  border-radius: 12px;
+  display: inline-block;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+}
+
+.copy-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 15px;
+}
+
+.share-input {
+  flex: 1;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--input-bg);
+  color: var(--text-secondary);
+  font-family: 'Monaco', 'Consolas', monospace;
+  font-size: 0.85rem;
+  outline: none;
+}
+
+.share-input:focus { border-color: var(--primary); color: white; }
+
+.icon-btn {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  color: white;
+  border-radius: 6px;
+  width: 42px;
+  cursor: pointer;
+  display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  background-color: #333;
-  color: white;
+  transition: all 0.2s;
+}
+
+.icon-btn:hover { border-color: var(--primary); color: var(--primary); }
+
+/* --- Download View Specifics --- */
+.download-view {
+  text-align: center;
+  padding-top: 60px;
+}
+.download-view h1 { justify-content: center; margin-bottom: 30px; }
+.file-preview { margin: 30px 0; animation: float 3s ease-in-out infinite; }
+.back-link { 
+  display: inline-block; 
+  margin-top: 40px; 
+  color: var(--text-secondary); 
   text-decoration: none;
-  padding: 10px 20px;
-  border-radius: 6px;
-  margin-top: 10px;
-  transition: background 0.2s;
-  border: 1px solid #555;
+  font-size: 0.9rem;
 }
+.back-link:hover { color: white; text-decoration: underline; }
 
-.download-link:hover {
-  background-color: #444;
-  border-color: #666;
-}
-
-.qr-box {
-  background: white;
-  padding: 15px;
-  border-radius: 10px;
-  display: inline-block;
-  margin-top: 15px;
-}
-
-/* Animationen */
+/* Animations */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
-.icon-spin {
-  animation: spin 1s linear infinite;
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+  100% { transform: translateY(0px); }
 }
 
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
+.icon-spin { animation: spin 1s linear infinite; }
+@keyframes spin { 100% { transform: rotate(360deg); } }
 
-/* Responsives Design für mobile Geräte */
+/* Mobile */
 @media (max-width: 600px) {
-  .app-container {
-    padding: 10px;
-    margin-top: 0;
-  }
-  .card {
-    padding: 20px;
-  }
+  .app-container { padding: 15px; margin-top: 10px; }
+  .card { padding: 20px; }
+  .lang-switch { position: relative; top: 0; right: 0; margin-bottom: 20px; display: inline-block; }
+  .header { margin-bottom: 20px; }
 }

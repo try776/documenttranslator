@@ -26,6 +26,7 @@ const LANGUAGES = [
   { code: 'pt', name: 'Português' },
 ];
 
+// --- Download Screen Component ---
 function DownloadView({ fileName }: { fileName: string }) {
   const { t } = useTranslation();
   const [url, setUrl] = useState('');
@@ -34,11 +35,7 @@ function DownloadView({ fileName }: { fileName: string }) {
   useEffect(() => {
     const fetchLink = async () => {
       try {
-        // Pfad sicherstellen: Falls 'translated/' fehlt, hinzufügen.
-        // Falls der Pfad bereits korrekt ist (wie durch den Fix unten), so lassen.
         const path = fileName.startsWith('translated/') ? fileName : `translated/${fileName}`;
-        console.log("Fetching Download URL for:", path);
-        
         const link = await getUrl({ 
           path, 
           options: { validateObjectExistence: false, expiresIn: 3600 }
@@ -54,25 +51,41 @@ function DownloadView({ fileName }: { fileName: string }) {
   }, [fileName]);
 
   const isDocx = fileName.toLowerCase().endsWith('.docx');
+  const displayFileName = fileName.split('/').pop();
 
   return (
-    <div className="app-container" style={{ textAlign: 'center', paddingTop: 50 }}>
+    <div className="app-container download-view">
       <h1>{t('secureDl')}</h1>
-      {isDocx ? 
-        <FaFileWord size={60} style={{ color: '#2b579a', margin: '20px 0' }} /> :
-        <FaFilePdf size={60} style={{ color: 'var(--primary)', margin: '20px 0' }} />
-      }
-      <p style={{ wordBreak: 'break-all', color: '#fff' }}>{fileName.split('/').pop()}</p>
-      {loading ? <FaSpinner className="icon-spin" /> : url ? (
-        <a href={url} className="primary-btn" style={{ maxWidth: '200px', margin: '0 auto', textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <FaDownload style={{marginRight: '8px'}} /> {t('download')}
+      
+      <div className="file-preview">
+        {isDocx ? 
+          <FaFileWord size={80} color="#2b579a" /> :
+          <FaFilePdf size={80} color="#ff9900" />
+        }
+      </div>
+      
+      <p style={{ wordBreak: 'break-all', marginBottom: 30, color: '#fff' }}>
+        {displayFileName}
+      </p>
+      
+      {loading ? (
+        <FaSpinner className="icon-spin" size={24} /> 
+      ) : url ? (
+        <a href={url} className="primary-btn" style={{ maxWidth: '250px', margin: '0 auto' }}>
+          <FaDownload /> {t('download')}
         </a>
-      ) : <p style={{ color: 'red' }}>File not found.</p>}
-      <div style={{ marginTop: 40 }}><a href="/" style={{ color: '#888' }}>{t('back')}</a></div>
+      ) : (
+        <p style={{ color: '#ff4444' }}>File not found or link expired.</p>
+      )}
+      
+      <div style={{ marginTop: 20 }}>
+        <a href="/" className="back-link">← {t('back')}</a>
+      </div>
     </div>
   );
 }
 
+// --- Main App Component ---
 function App() {
   const { t, i18n } = useTranslation();
   const params = new URLSearchParams(window.location.search);
@@ -109,7 +122,7 @@ function App() {
       const name = selectedFile.name.toLowerCase();
       const isPdf = selectedFile.type === 'application/pdf' || name.endsWith('.pdf');
       const isDocx = name.endsWith('.docx') || 
-                      selectedFile.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+                     selectedFile.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
       if (isPdf || isDocx) {
         setFile(selectedFile);
@@ -136,7 +149,6 @@ function App() {
     try {
       await fetchAuthSession();
 
-      // Leerzeichen durch _ ersetzen für S3 Kompatibilität
       const cleanName = file.name.replace(/\s+/g, '_');
       const s3Path = `uploads/${Date.now()}/${cleanName}`;
       
@@ -167,7 +179,6 @@ function App() {
       }
 
       const jobId = startRes.jobId;
-      console.log('Job Started:', jobId);
 
       pollRef.current = setInterval(async () => {
         try {
@@ -177,43 +188,32 @@ function App() {
             s3Key: s3Path
           });
 
-          if (checkErrors) {
-             console.error(checkErrors);
-             return; 
-          }
+          if (checkErrors) { console.error(checkErrors); return; }
 
-         const checkRes = checkData ? JSON.parse(checkData as string) : {};
+          const checkRes = checkData ? JSON.parse(checkData as string) : {};
           console.log('Job Status:', checkRes);
 
           if (checkRes.status === 'DONE') {
               clearInterval(pollRef.current);
               
-              // WICHTIG: Wir nutzen direkt den validierten Pfad vom Backend!
-              // Keine manuelle String-Bastelarbeit mehr nötig.
               const finalPath = checkRes.downloadPath;
-              console.log("Using validated S3 Key from Backend:", finalPath);
               
-              // 1. Link für Share/QR Code (Public Page)
               const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
               if (isLocalhost) {
-                // Lokal direkt S3 URL nutzen
                 const urlData = await getUrl({ path: finalPath });
                 setShareLink(urlData.url.toString());
                 setDirectDownloadUrl(urlData.url.toString());
               } else {
-                // Production: Link auf die App selbst mit Parameter
                 setShareLink(`${window.location.origin}/?file=${encodeURIComponent(finalPath)}`);
-                
-                // 2. Link für direkten Download Button (Signierte S3 URL holen)
                 const downloadUrlData = await getUrl({ path: finalPath });
                 setDirectDownloadUrl(downloadUrlData.url.toString());
               }
               
               setStatus('DONE');
           } else if (checkRes.status === 'ERROR') {
-             clearInterval(pollRef.current);
-             setStatus('ERROR');
-             setErrorMsg(checkRes.error);
+              clearInterval(pollRef.current);
+              setStatus('ERROR');
+              setErrorMsg(checkRes.error);
           }
         } catch (e) {
           console.error("Polling error", e);
@@ -230,14 +230,18 @@ function App() {
   return (
     <div className="app-container">
       <div className="lang-switch">
-        <button className={i18n.language === 'en' ? 'active' : ''} onClick={() => i18n.changeLanguage('en')}>EN</button> | 
+        <button className={i18n.language === 'en' ? 'active' : ''} onClick={() => i18n.changeLanguage('en')}>EN</button> 
+        <span style={{color:'#555'}}>|</span>
         <button className={i18n.language === 'de' ? 'active' : ''} onClick={() => i18n.changeLanguage('de')}>DE</button>
       </div>
+
       <header className="header">
         <h1><FaGlobe style={{ color: 'var(--primary)' }} /> {t('title')}</h1>
         <p className="subtitle">{t('subtitle')}</p>
       </header>
+
       <main className="card">
+        {/* File Selection */}
         <div className={`file-input-wrapper ${file ? 'active' : ''}`}>
           <label style={{ width: '100%', display: 'block', cursor: 'pointer' }}>
             <input 
@@ -248,61 +252,68 @@ function App() {
               disabled={status === 'UPLOADING' || status === 'PROCESSING'} 
             />
             {file && file.name.endsWith('.docx') ? 
-              <FaFileWord size={50} color="#2b579a" /> :
-              <FaCloudUploadAlt size={50} color={file ? 'var(--primary)' : '#666'} />
+              <FaFileWord size={48} color="#2b579a" /> :
+              <FaCloudUploadAlt size={48} color={file ? 'var(--primary)' : 'var(--text-secondary)'} />
             }
             <p>{file ? file.name : t('selectFile')}</p>
           </label>
         </div>
+
+        {/* Translation Options */}
         {file && (
           <div style={{ animation: 'fadeIn 0.3s ease' }}>
-            <label style={{ fontSize: '0.9rem', color: '#aaa' }}>{t('translateTo')}</label>
-            <select value={targetLang} onChange={(e) => setTargetLang(e.target.value)} disabled={status !== 'IDLE' && status !== 'DONE' && status !== 'ERROR'}>
-              {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.name}</option>)}
-            </select>
+            <div className="form-group">
+              <label>{t('translateTo')}</label>
+              <select 
+                value={targetLang} 
+                onChange={(e) => setTargetLang(e.target.value)} 
+                disabled={status !== 'IDLE' && status !== 'DONE' && status !== 'ERROR'}
+              >
+                {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.name}</option>)}
+              </select>
+            </div>
+
             <button className="primary-btn" onClick={startTranslation} disabled={status === 'UPLOADING' || status === 'PROCESSING'}>
-              {status === 'UPLOADING' ? t('uploading', { progress }) : 
+              {status === 'UPLOADING' ? `${t('uploading')} ${progress}%` : 
                status === 'PROCESSING' ? <><FaSpinner className="icon-spin" /> {t('processing')}</> : 
                t('translateBtn')}
             </button>
           </div>
         )}
+
         {errorMsg && <p style={{ color: '#ff4444', marginTop: 15, textAlign: 'center' }}>{errorMsg}</p>}
+
+        {/* Success / Result Area */}
         {status === 'DONE' && shareLink && (
           <div className="result-area">
-            <h3><FaCheckCircle /> {t('success')}</h3>
+            <div className="result-header">
+              <FaCheckCircle /> {t('success')}
+            </div>
             
-            <div className="qr-box" style={{ marginTop: 25, background: '#eee', padding: 20, borderRadius: 10, width: '100%' }}>
-              <h4 style={{margin: '0 0 15px 0', color: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'}}>
+            <div className="share-container">
+              <h4 style={{ margin: '0 0 15px 0', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
                 <FaShareAlt /> {t('share')}
               </h4>
-              <div style={{ background: 'white', padding: '10px', display: 'inline-block', borderRadius: '5px' }}>
-                <QRCodeSVG value={shareLink} size={150} level={"L"} includeMargin={true} />
+              
+              <div className="qr-wrapper">
+                <QRCodeSVG value={shareLink} size={140} level={"L"} includeMargin={false} />
               </div>
               
-              <div style={{ display: 'flex', marginTop: 15, gap: 5, marginBottom: 15 }}>
-                <input readOnly value={shareLink} style={{ flex: 1, padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} onClick={(e) => e.currentTarget.select()} />
-                <button onClick={copyLink} style={{ background: 'var(--primary)', border: 'none', borderRadius: '4px', padding: '0 15px', cursor: 'pointer', color: 'white' }}>{copied ? <FaCheckCircle /> : <FaCopy />}</button>
+              <div className="copy-row">
+                <input className="share-input" readOnly value={shareLink} onClick={(e) => e.currentTarget.select()} />
+                <button className="icon-btn" onClick={copyLink} title="Copy Link">
+                  {copied ? <FaCheckCircle color="var(--success)" /> : <FaCopy />}
+                </button>
               </div>
 
-              {/* HIER IST DER NEUE DOWNLOAD BUTTON */}
               {directDownloadUrl && (
-                  <a href={directDownloadUrl} target="_blank" rel="noopener noreferrer" className="primary-btn" style={{ 
-                      textDecoration: 'none', 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      justifyContent: 'center',
-                      background: '#2b579a', // Etwas andere Farbe zur Unterscheidung
-                      marginTop: '10px'
-                  }}>
-                    <FaDownload style={{marginRight: '8px'}} /> {t('download')}
+                  <a href={directDownloadUrl} target="_blank" rel="noopener noreferrer" className="primary-btn secondary-btn">
+                    <FaDownload /> {t('download')}
                   </a>
               )}
 
-              <p style={{fontSize: '0.8rem', color: '#666', marginTop: '10px'}}>
-                {window.location.hostname === 'localhost' 
-                  ? "Dev-Mode: Direct S3 Link" 
-                  : "Share this secure link to download"}
+              <p style={{ fontSize: '0.75rem', color: '#666', marginTop: '15px' }}>
+                {window.location.hostname === 'localhost' ? "Dev: Direct S3 Link" : "Secure shareable link"}
               </p>
             </div>
           </div>

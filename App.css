@@ -1,0 +1,244 @@
+/* src/App.css */
+:root {
+  --primary: #ff9900;          /* AWS Orange */
+  --primary-hover: #e68a00;
+  --bg-color: #1a1a1a;         /* Dunkler Hintergrund */
+  --card-bg: #2d2d2d;          /* Panel Hintergrund */
+  --text-color: #ffffff;
+  --text-secondary: #a0a0a0;
+  --border-color: #444;
+  --success: #4CAF50;
+}
+
+/* Globales Reset für Body, falls index.css leer ist */
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+}
+
+.app-container {
+  width: 100%;
+  max-width: 500px;
+  margin-top: 40px;
+  padding: 20px;
+  position: relative;
+}
+
+/* Language Switcher (Oben Rechts) */
+.lang-switch {
+  position: absolute;
+  top: 0;
+  right: 20px;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 5px 10px;
+  border-radius: 20px;
+  font-size: 0.9rem;
+}
+
+.lang-switch button {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-weight: 600;
+  padding: 0 5px;
+  transition: color 0.2s;
+}
+
+.lang-switch button:hover {
+  color: #fff;
+}
+
+.lang-switch button.active {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+/* Header Bereich */
+.header {
+  text-align: center;
+  margin-bottom: 30px;
+  margin-top: 20px;
+}
+
+.header h1 {
+  font-size: 2rem;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.subtitle {
+  color: var(--text-secondary);
+  margin-top: 5px;
+  font-size: 0.9rem;
+}
+
+/* Hauptkarte */
+.card {
+  background-color: var(--card-bg);
+  padding: 30px;
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--border-color);
+}
+
+/* Upload Bereich */
+.file-input-wrapper {
+  border: 2px dashed var(--border-color);
+  border-radius: 8px;
+  padding: 40px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  background: rgba(255, 255, 255, 0.02);
+  margin-bottom: 20px;
+}
+
+.file-input-wrapper:hover {
+  border-color: var(--primary);
+  background: rgba(255, 153, 0, 0.05);
+}
+
+.file-input-wrapper.active {
+  border-color: var(--primary);
+  background: rgba(255, 153, 0, 0.1);
+}
+
+.file-input-wrapper p {
+  margin-top: 15px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+/* Eingabefelder & Buttons */
+select {
+  width: 100%;
+  padding: 12px;
+  background-color: #1a1a1a;
+  border: 1px solid var(--border-color);
+  color: white;
+  border-radius: 6px;
+  margin-bottom: 15px;
+  font-size: 1rem;
+  outline: none;
+  cursor: pointer;
+}
+
+select:focus {
+  border-color: var(--primary);
+}
+
+.primary-btn {
+  width: 100%;
+  padding: 14px;
+  background-color: var(--primary);
+  color: #000;
+  border: none;
+  border-radius: 6px;
+  font-size: 1rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+}
+
+.primary-btn:hover:not(:disabled) {
+  background-color: var(--primary-hover);
+  transform: translateY(-1px);
+}
+
+.primary-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.primary-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  filter: grayscale(0.5);
+}
+
+/* Ergebnis Bereich */
+.result-area {
+  margin-top: 30px;
+  text-align: center;
+  border-top: 1px solid var(--border-color);
+  padding-top: 20px;
+  animation: fadeIn 0.5s ease-out;
+}
+
+.result-area h3 {
+  color: var(--success);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.download-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background-color: #333;
+  color: white;
+  text-decoration: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  margin-top: 10px;
+  transition: background 0.2s;
+  border: 1px solid #555;
+}
+
+.download-link:hover {
+  background-color: #444;
+  border-color: #666;
+}
+
+.qr-box {
+  background: white;
+  padding: 15px;
+  border-radius: 10px;
+  display: inline-block;
+  margin-top: 15px;
+}
+
+/* Animationen */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.icon-spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Responsives Design für mobile Geräte */
+@media (max-width: 600px) {
+  .app-container {
+    padding: 10px;
+    margin-top: 0;
+  }
+  .card {
+    padding: 20px;
+  }
+}

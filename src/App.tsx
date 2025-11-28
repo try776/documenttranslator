@@ -34,6 +34,7 @@ function DownloadView({ fileName }: { fileName: string }) {
   useEffect(() => {
     const fetchLink = async () => {
       try {
+        // Da fileName jetzt der volle Pfad aus der URL sein kann, prüfen wir das
         const path = fileName.startsWith('translated/') ? fileName : `translated/${fileName}`;
         const link = await getUrl({ path, options: { validateObjectExistence: false, expiresIn: 3600 }});
         setUrl(link.url.toString());
@@ -100,7 +101,6 @@ function App() {
 
     if (selectedFile) {
       const name = selectedFile.name.toLowerCase();
-      // Prüfen ob PDF oder DOCX
       const isPdf = selectedFile.type === 'application/pdf' || name.endsWith('.pdf');
       const isDocx = name.endsWith('.docx') || 
                      selectedFile.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -130,9 +130,8 @@ function App() {
     try {
       await fetchAuthSession();
 
-      // Leerzeichen im Dateinamen ersetzen
       const cleanName = file.name.replace(/\s+/g, '_');
-      const s3Path = `uploads/${Date.now()}-${cleanName}`;
+      const s3Path = `uploads/${Date.now()}/${cleanName}`;
       
       await uploadData({
         path: s3Path, 
@@ -144,7 +143,9 @@ function App() {
       
       setStatus('PROCESSING');
       
-      // 1. START JOB
+      console.log('Upload complete. Waiting for consistency...');
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
       const { data: startData, errors: startErrors } = await client.queries.translateDocument({
         s3Key: s3Path,
         targetLang,
@@ -161,7 +162,6 @@ function App() {
       const jobId = startRes.jobId;
       console.log('Job Started:', jobId);
 
-      // 2. POLL STATUS
       pollRef.current = setInterval(async () => {
         try {
           const { data: checkData, errors: checkErrors } = await client.queries.translateDocument({
@@ -181,10 +181,23 @@ function App() {
           if (checkRes.status === 'DONE') {
              clearInterval(pollRef.current);
              
+             // 1. Hole die signierte URL für den direkten Download Button
              const urlData = await getUrl({ path: checkRes.downloadPath });
              setResultUrl(urlData.url.toString());
              
-             setShareLink(`${window.location.origin}/?file=${encodeURIComponent(checkRes.downloadPath)}`);
+             // 2. Logik für den Share-Link
+             const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+             
+             if (isLocalhost) {
+                // Wenn lokal: Nutze die direkte S3-URL auch für den Share-Link, 
+                // damit man ihn z.B. auf dem Handy öffnen kann (localhost geht dort nicht).
+                // Nachteil: Man sieht nicht die schöne DownloadView, sondern direkt die Datei.
+                setShareLink(urlData.url.toString());
+             } else {
+                // Wenn deployt: Nutze den schönen App-Link mit Parameter
+                setShareLink(`${window.location.origin}/?file=${encodeURIComponent(checkRes.downloadPath)}`);
+             }
+             
              setStatus('DONE');
           } else if (checkRes.status === 'ERROR') {
              clearInterval(pollRef.current);
@@ -247,7 +260,11 @@ function App() {
         {status === 'DONE' && resultUrl && (
           <div className="result-area">
             <h3><FaCheckCircle /> {t('success')}</h3>
-            <a href={resultUrl} className="download-link" target="_blank" rel="noreferrer"><FaDownload /> {t('download')}</a>
+            {/* Direct Download Button */}
+            <a href={resultUrl} className="download-link" target="_blank" rel="noreferrer" download>
+              <FaDownload /> {t('download')}
+            </a>
+
             {shareLink && (
               <div className="qr-box" style={{ marginTop: 25, background: '#eee', padding: 20, borderRadius: 10, width: '100%' }}>
                 <QRCodeSVG value={shareLink} size={140} />
@@ -255,6 +272,11 @@ function App() {
                   <input readOnly value={shareLink} style={{ flex: 1 }} />
                   <button onClick={copyLink} style={{ background: 'var(--primary)', border: 'none', cursor: 'pointer' }}>{copied ? <FaCheckCircle /> : <FaCopy />}</button>
                 </div>
+                <p style={{fontSize: '0.8rem', color: '#666', marginTop: '10px'}}>
+                  {window.location.hostname === 'localhost' 
+                    ? "Dev-Mode: Direct S3 Link (valid 1h)" 
+                    : "Share this secure link"}
+                </p>
               </div>
             )}
           </div>

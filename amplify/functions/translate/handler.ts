@@ -3,10 +3,9 @@ import { TranslateClient, TranslateDocumentCommand } from '@aws-sdk/client-trans
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { Readable } from 'stream';
 
-// KORREKTUR: Region explizit auf 'eu-central-1' (Frankfurt) setzen
-// Amazon Translate ist in sa-east-1 nicht verfügbar.
+// WICHTIG: Region explizit auf Frankfurt (eu-central-1) setzen
 const translateClient = new TranslateClient({ region: "eu-central-1" });
-const s3Client = new S3Client({});
+const s3Client = new S3Client({}); // S3 nutzt die lokale Region (sa-east-1)
 
 const streamToBuffer = async (stream: Readable): Promise<Buffer> => {
   return new Promise((resolve, reject) => {
@@ -18,38 +17,50 @@ const streamToBuffer = async (stream: Readable): Promise<Buffer> => {
 };
 
 export const handler: Handler = async (event) => {
-  const { s3Key, targetLang } = event.arguments;
+  // Argumente sicher abrufen
+  const args = event.arguments || {};
+  const { s3Key, targetLang } = args;
 
   console.log(JSON.stringify({ level: 'INFO', message: 'Lambda Started', s3Key, targetLang }));
 
   const bucketName = process.env.STORAGE_DOCUMENTBUCKET_BUCKETNAME;
   if (!bucketName) {
-    throw new Error('Bucket Name env missing');
+    console.error("Bucket Name Env missing");
+    throw new Error('Server Configuration Error: Bucket missing');
   }
 
   try {
-    // 1. Fetch from S3 (lokale Region sa-east-1)
-    console.log(JSON.stringify({ level: 'INFO', message: 'Fetching from S3', key: s3Key }));
+    // 1. Datei von S3 laden
+    console.log(`Fetching from S3 bucket: ${bucketName} key: ${s3Key}`);
     const getCommand = new GetObjectCommand({ Bucket: bucketName, Key: s3Key });
     const s3Item = await s3Client.send(getCommand);
+    
     if (!s3Item.Body) throw new Error('Empty S3 Body');
+    
+    // Datei in Speicher laden (Hier wird RAM benötigt!)
     const fileBuffer = await streamToBuffer(s3Item.Body as Readable);
+    console.log(`File loaded. Size: ${fileBuffer.length} bytes`);
 
-    // 2. Translate (in eu-central-1)
-    console.log(JSON.stringify({ level: 'INFO', message: 'Translating', targetLang }));
+    // 2. An Amazon Translate senden
+    console.log(`Sending to Amazon Translate (eu-central-1). Target: ${targetLang}`);
     const translateCommand = new TranslateDocumentCommand({
       Document: { Content: fileBuffer, ContentType: 'application/pdf' },
       SourceLanguageCode: 'auto',
       TargetLanguageCode: targetLang
     });
+    
     const result = await translateClient.send(translateCommand);
-    if (!result.TranslatedDocument?.Content) throw new Error('Translation failed');
+    
+    if (!result.TranslatedDocument?.Content) {
+      throw new Error('Translation failed: No content returned from Amazon Translate');
+    }
+    console.log('Translation received.');
 
-    // 3. Save to S3 (lokale Region sa-east-1)
+    // 3. Ergebnis speichern
     const originalName = s3Key.split('/').pop();
     const newKey = `translated/translated-${originalName}`;
     
-    console.log(JSON.stringify({ level: 'INFO', message: 'Saving to S3', newKey }));
+    console.log(`Saving result to S3: ${newKey}`);
     await s3Client.send(new PutObjectCommand({
       Bucket: bucketName,
       Key: newKey,
@@ -57,6 +68,7 @@ export const handler: Handler = async (event) => {
       ContentType: 'application/pdf'
     }));
 
+    console.log('Success.');
     return {
       status: 'DONE',
       downloadPath: newKey,
@@ -64,7 +76,8 @@ export const handler: Handler = async (event) => {
     };
 
   } catch (error: any) {
-    console.error(JSON.stringify({ level: 'ERROR', message: error.message }));
-    return { status: 'ERROR', error: error.message };
+    console.error("Lambda Error Details:", JSON.stringify(error, Object.getOwnPropertyNames(error)));
+    // Fehler zurückgeben, damit das Frontend ihn anzeigen kann
+    return { status: 'ERROR', error: error.message || 'Unknown Server Error' };
   }
 };

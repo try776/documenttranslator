@@ -9,7 +9,7 @@ import outputs from '../amplify_outputs.json';
 // I18n & UI
 import './i18n';
 import { useTranslation } from 'react-i18next';
-import { FaCloudUploadAlt, FaDownload, FaSpinner, FaCheckCircle, FaGlobe, FaFilePdf, FaCopy, FaFileWord } from 'react-icons/fa';
+import { FaCloudUploadAlt, FaSpinner, FaCheckCircle, FaGlobe, FaFilePdf, FaCopy, FaFileWord, FaShareAlt } from 'react-icons/fa';
 import { QRCodeSVG } from 'qrcode.react';
 import './App.css';
 
@@ -34,7 +34,6 @@ function DownloadView({ fileName }: { fileName: string }) {
   useEffect(() => {
     const fetchLink = async () => {
       try {
-        // Da fileName jetzt der volle Pfad aus der URL sein kann, prüfen wir das
         const path = fileName.startsWith('translated/') ? fileName : `translated/${fileName}`;
         const link = await getUrl({ path, options: { validateObjectExistence: false, expiresIn: 3600 }});
         setUrl(link.url.toString());
@@ -59,7 +58,7 @@ function DownloadView({ fileName }: { fileName: string }) {
       <p style={{ wordBreak: 'break-all', color: '#fff' }}>{fileName.split('/').pop()}</p>
       {loading ? <FaSpinner className="icon-spin" /> : url ? (
         <a href={url} className="primary-btn" style={{ maxWidth: '200px', margin: '0 auto', textDecoration: 'none' }}>
-          <FaDownload /> {t('download')}
+          <FaDownload style={{marginRight: '8px'}} /> {t('download')}
         </a>
       ) : <p style={{ color: 'red' }}>File not found.</p>}
       <div style={{ marginTop: 40 }}><a href="/" style={{ color: '#888' }}>{t('back')}</a></div>
@@ -76,7 +75,6 @@ function App() {
   const [targetLang, setTargetLang] = useState('en');
   const [status, setStatus] = useState<'IDLE'|'UPLOADING'|'PROCESSING'|'DONE'|'ERROR'>('IDLE');
   const [progress, setProgress] = useState(0);
-  const [resultUrl, setResultUrl] = useState<string | null>(null);
   const [shareLink, setShareLink] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -95,7 +93,6 @@ function App() {
     setFile(null); 
     setStatus('IDLE');
     setErrorMsg(null); 
-    setResultUrl(null);
     setShareLink(null);
     setProgress(0);
 
@@ -181,20 +178,13 @@ function App() {
           if (checkRes.status === 'DONE') {
              clearInterval(pollRef.current);
              
-             // 1. Hole die signierte URL für den direkten Download Button
+             // Nur für Localhost: S3 Link generieren (damit er auf dem Handy geht)
              const urlData = await getUrl({ path: checkRes.downloadPath });
-             setResultUrl(urlData.url.toString());
-             
-             // 2. Logik für den Share-Link
              const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
              
              if (isLocalhost) {
-                // Wenn lokal: Nutze die direkte S3-URL auch für den Share-Link, 
-                // damit man ihn z.B. auf dem Handy öffnen kann (localhost geht dort nicht).
-                // Nachteil: Man sieht nicht die schöne DownloadView, sondern direkt die Datei.
                 setShareLink(urlData.url.toString());
              } else {
-                // Wenn deployt: Nutze den schönen App-Link mit Parameter
                 setShareLink(`${window.location.origin}/?file=${encodeURIComponent(checkRes.downloadPath)}`);
              }
              
@@ -257,28 +247,27 @@ function App() {
           </div>
         )}
         {errorMsg && <p style={{ color: '#ff4444', marginTop: 15, textAlign: 'center' }}>{errorMsg}</p>}
-        {status === 'DONE' && resultUrl && (
+        {status === 'DONE' && shareLink && (
           <div className="result-area">
             <h3><FaCheckCircle /> {t('success')}</h3>
-            {/* Direct Download Button */}
-            <a href={resultUrl} className="download-link" target="_blank" rel="noreferrer" download>
-              <FaDownload /> {t('download')}
-            </a>
-
-            {shareLink && (
-              <div className="qr-box" style={{ marginTop: 25, background: '#eee', padding: 20, borderRadius: 10, width: '100%' }}>
-                <QRCodeSVG value={shareLink} size={140} />
-                <div style={{ display: 'flex', marginTop: 15, gap: 5 }}>
-                  <input readOnly value={shareLink} style={{ flex: 1 }} />
-                  <button onClick={copyLink} style={{ background: 'var(--primary)', border: 'none', cursor: 'pointer' }}>{copied ? <FaCheckCircle /> : <FaCopy />}</button>
-                </div>
-                <p style={{fontSize: '0.8rem', color: '#666', marginTop: '10px'}}>
-                  {window.location.hostname === 'localhost' 
-                    ? "Dev-Mode: Direct S3 Link (valid 1h)" 
-                    : "Share this secure link"}
-                </p>
+            
+            <div className="qr-box" style={{ marginTop: 25, background: '#eee', padding: 20, borderRadius: 10, width: '100%' }}>
+              <h4 style={{margin: '0 0 15px 0', color: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'}}>
+                <FaShareAlt /> {t('share')}
+              </h4>
+              <div style={{ background: 'white', padding: '10px', display: 'inline-block', borderRadius: '5px' }}>
+                <QRCodeSVG value={shareLink} size={150} level={"L"} includeMargin={true} />
               </div>
-            )}
+              <div style={{ display: 'flex', marginTop: 15, gap: 5 }}>
+                <input readOnly value={shareLink} style={{ flex: 1, padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} onClick={(e) => e.currentTarget.select()} />
+                <button onClick={copyLink} style={{ background: 'var(--primary)', border: 'none', borderRadius: '4px', padding: '0 15px', cursor: 'pointer', color: 'white' }}>{copied ? <FaCheckCircle /> : <FaCopy />}</button>
+              </div>
+              <p style={{fontSize: '0.8rem', color: '#666', marginTop: '10px'}}>
+                {window.location.hostname === 'localhost' 
+                  ? "Dev-Mode: Direct S3 Link (Scan with Phone)" 
+                  : "Share this secure link to download"}
+              </p>
+            </div>
           </div>
         )}
       </main>

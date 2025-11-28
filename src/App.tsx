@@ -34,7 +34,9 @@ function DownloadView({ fileName }: { fileName: string }) {
   useEffect(() => {
     const fetchLink = async () => {
       try {
+        // Pfad sicherstellen
         const path = fileName.startsWith('translated/') ? fileName : `translated/${fileName}`;
+        console.log("Fetching Download URL for:", path);
         const link = await getUrl({ path, options: { validateObjectExistence: false, expiresIn: 3600 }});
         setUrl(link.url.toString());
       } catch (e) {
@@ -100,7 +102,7 @@ function App() {
       const name = selectedFile.name.toLowerCase();
       const isPdf = selectedFile.type === 'application/pdf' || name.endsWith('.pdf');
       const isDocx = name.endsWith('.docx') || 
-                     selectedFile.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+                      selectedFile.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
       if (isPdf || isDocx) {
         setFile(selectedFile);
@@ -178,14 +180,35 @@ function App() {
           if (checkRes.status === 'DONE') {
              clearInterval(pollRef.current);
              
-             // Nur für Localhost: S3 Link generieren (damit er auf dem Handy geht)
-             const urlData = await getUrl({ path: checkRes.downloadPath });
+             // --- FIX: PFAD KORREKTUR START ---
+             // Amazon Translate ändert den Dateinamen zu [lang].[filename] und speichert flach im Job-Ordner.
+             // Der vom Lambda zurückgegebene Pfad ist oft falsch (enthält noch uploads/).
+             
+             let finalPath = checkRes.downloadPath; // Wahrscheinlich z.B. "JOBID/uploads/timestamp/file.docx"
+             
+             // Wir splitten den Pfad, um die Job-Folder-ID zu bekommen (der erste Teil)
+             const pathParts = finalPath.split('/');
+             if (pathParts.length > 0 && file) {
+                 const jobFolderId = pathParts[0]; 
+                 // Konstruiere den echten Dateinamen, wie er im S3 Screenshot zu sehen ist: "en.aws_test_datei.docx"
+                 const correctFileName = `${targetLang}.${file.name.replace(/\s+/g, '_')}`;
+                 
+                 // Neuer korrekter Pfad: "JOBID/en.file.docx"
+                 finalPath = `${jobFolderId}/${correctFileName}`;
+                 console.log("Corrected S3 Path:", finalPath);
+             }
+             // --- FIX PFAD KORREKTUR ENDE ---
+             
+             // URL generieren (Pfad muss 'translated/' enthalten, da DownloadView dies erwartet oder hinzufügt)
+             const fullS3Path = `translated/${finalPath}`;
+             const urlData = await getUrl({ path: fullS3Path });
              const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
              
              if (isLocalhost) {
-                setShareLink(urlData.url.toString());
+               setShareLink(urlData.url.toString());
              } else {
-                setShareLink(`${window.location.origin}/?file=${encodeURIComponent(checkRes.downloadPath)}`);
+               // Wir geben 'finalPath' weiter. DownloadView fügt 'translated/' hinzu.
+               setShareLink(`${window.location.origin}/?file=${encodeURIComponent(finalPath)}`);
              }
              
              setStatus('DONE');

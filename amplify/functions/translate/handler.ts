@@ -4,9 +4,10 @@ import {
   StartTextTranslationJobCommand, 
   DescribeTextTranslationJobCommand 
 } from '@aws-sdk/client-translate';
+import { S3Client, HeadObjectCommand } from '@aws-sdk/client-s3';
 
-// Client nutzt die Region der Lambda (eu-central-1)
 const translateClient = new TranslateClient({});
+const s3Client = new S3Client({});
 
 export const handler: Handler = async (event, context: Context) => {
   const { s3Key, targetLang, jobId, action } = event.arguments;
@@ -22,29 +23,35 @@ export const handler: Handler = async (event, context: Context) => {
     if (action === 'start') {
       console.log(`Starting Job for: ${s3Key} to ${targetLang}`);
       
+      // 1. Vorab-Check: Existiert die Datei wirklich?
+      try {
+        await s3Client.send(new HeadObjectCommand({ Bucket: bucketName, Key: s3Key }));
+        console.log("File exists and is accessible by Lambda.");
+      } catch (e: any) {
+        console.error("S3 HeadObject failed:", e);
+        throw new Error(`File not found or not accessible: ${s3Key}. Error: ${e.message}`);
+      }
+
       const inputUri = `s3://${bucketName}/${s3Key}`;
       const outputUri = `s3://${bucketName}/translated/`;
       const jobName = `job-${Date.now()}`;
 
-      // Dateityp dynamisch erkennen
+      // Dateityp Bestimmung
       const lowerKey = s3Key.toLowerCase();
-      let contentType = 'application/octet-stream'; // Fallback
+      let inputDataConfig: any = { S3Uri: inputUri };
 
+      // WICHTIG: Für PDF MUSS ContentType gesetzt sein.
+      // Für DOCX lassen wir ihn WEG, damit AWS ihn automatisch erkennt (stabiler).
       if (lowerKey.endsWith('.pdf')) {
-        contentType = 'application/pdf';
-      } else if (lowerKey.endsWith('.docx')) {
-        // Der offizielle MIME-Type für .docx
-        contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-      }
+        inputDataConfig.ContentType = 'application/pdf';
+      } 
+      // Kein ContentType für .docx setzen!
 
-      console.log(`Detected ContentType: ${contentType}`);
+      console.log(`Input Config:`, JSON.stringify(inputDataConfig));
 
       const command = new StartTextTranslationJobCommand({
         JobName: jobName,
-        InputDataConfig: { 
-          S3Uri: inputUri,
-          ContentType: contentType
-        },
+        InputDataConfig: inputDataConfig,
         OutputDataConfig: { S3Uri: outputUri },
         DataAccessRoleArn: dataAccessRoleArn,
         SourceLanguageCode: 'auto',

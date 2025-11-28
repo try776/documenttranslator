@@ -1,4 +1,3 @@
-// amplify/functions/translate/handler.ts
 import { Handler } from 'aws-lambda';
 import { TranslateClient, TranslateDocumentCommand } from '@aws-sdk/client-translate';
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
@@ -17,15 +16,9 @@ const streamToBuffer = async (stream: Readable): Promise<Buffer> => {
 };
 
 export const handler: Handler = async (event) => {
-  // ÄNDERUNG: Zugriff via event.arguments für AppSync/Data Schema
   const { s3Key, targetLang } = event.arguments;
 
-  console.log(JSON.stringify({ 
-    level: 'INFO', 
-    message: 'Lambda Started via Data Schema', 
-    s3Key, 
-    targetLang 
-  }));
+  console.log(JSON.stringify({ level: 'INFO', message: 'Lambda Started', s3Key, targetLang }));
 
   const bucketName = process.env.STORAGE_DOCUMENTBUCKET_BUCKETNAME;
   if (!bucketName) {
@@ -62,15 +55,16 @@ export const handler: Handler = async (event) => {
       ContentType: 'application/pdf'
     }));
 
-    // Rückgabe als JSON String (wie im Schema definiert)
-    return JSON.stringify({
+    // KORREKTUR: Objekt direkt zurückgeben, kein JSON.stringify nötig
+    return {
       status: 'DONE',
       downloadPath: newKey,
       fileName: `translated-${originalName}`
-    });
+    };
 
   } catch (error: any) {
     console.error(JSON.stringify({ level: 'ERROR', message: error.message }));
-    return JSON.stringify({ status: 'ERROR', error: error.message });
+    // Auch Fehler als Objekt zurückgeben
+    return { status: 'ERROR', error: error.message };
   }
 };

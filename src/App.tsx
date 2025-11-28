@@ -1,9 +1,8 @@
-// src/App.tsx
 import React, { useState, useEffect } from 'react';
 import { Amplify } from 'aws-amplify';
 import { uploadData, getUrl } from 'aws-amplify/storage';
-import { generateClient } from 'aws-amplify/data'; // NEU
-import type { Schema } from '../amplify/data/resource'; // Typen Import
+import { generateClient } from 'aws-amplify/data';
+import type { Schema } from '../amplify/data/resource';
 import outputs from '../amplify_outputs.json';
 
 // I18n & UI
@@ -15,7 +14,7 @@ import './App.css';
 
 Amplify.configure(outputs);
 
-const client = generateClient<Schema>(); // Typisierter Client
+const client = generateClient<Schema>();
 
 const LANGUAGES = [
   { code: 'en', name: 'English' },
@@ -100,9 +99,11 @@ function App() {
     setProgress(0);
 
     try {
-      const s3Key = `uploads/${Date.now()}-${file.name}`;
+      const s3Path = `uploads/${Date.now()}-${file.name}`;
+      
+      // KORREKTUR: 'path' statt 'key' verwenden
       await uploadData({
-        key: s3Key,
+        path: s3Path, 
         data: file,
         options: {
           onProgress: (p) => p.totalBytes && setProgress(Math.round((p.transferredBytes / p.totalBytes) * 100))
@@ -111,25 +112,25 @@ function App() {
       
       setStatus('PROCESSING');
       
-      // NEU: Aufruf via Data Client statt API.post
-      const { data: responseString, errors } = await client.models.translateDocument({
-        s3Key,
+      // Aufruf der Lambda Funktion via Data Client
+      const { data, errors } = await client.models.translateDocument({
+        s3Key: s3Path,
         targetLang
       });
 
       if (errors) throw new Error(errors[0].message);
       
-      // Lambda gibt JSON-String zurück, den wir parsen müssen
-      const data = responseString ? JSON.parse(responseString) : {};
+      // KORREKTUR: Wir erwarten jetzt direkt ein JSON Objekt, keinen String mehr
+      const resultData = data ? (typeof data === 'string' ? JSON.parse(data) : data) : {};
 
-      if (data.status === 'DONE' && data.downloadPath) {
-        const urlData = await getUrl({ path: data.downloadPath });
+      if (resultData.status === 'DONE' && resultData.downloadPath) {
+        const urlData = await getUrl({ path: resultData.downloadPath });
         setResultUrl(urlData.url.toString());
-        const cleanName = data.fileName || data.downloadPath.split('/').pop();
+        const cleanName = resultData.fileName || resultData.downloadPath.split('/').pop();
         setShareLink(`${window.location.origin}/?file=${encodeURIComponent(cleanName)}`);
         setStatus('DONE');
       } else {
-        throw new Error(data.error || 'Translation failed');
+        throw new Error(resultData.error || 'Translation failed');
       }
     } catch (err: any) {
       console.error(err);
